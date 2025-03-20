@@ -1,0 +1,15 @@
+numpy
+pypdf
+torch
+python-dotenv
+langchain
+langchain-community
+langchain-google-genai
+chromadb
+sentence-transformers
+flask
+gunicorn
+requests
+langchain-chroma
+langchain-huggingface
+pyTelegramBotAPI
