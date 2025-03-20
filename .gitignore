@@ -1,0 +1,4 @@
+RAG_BOT/data/*
+*.pyc
+RAG_BOT/chroma_db/*
+*.env
