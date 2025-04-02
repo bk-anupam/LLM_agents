@@ -4,7 +4,6 @@ from datetime import datetime
 from logger import logger
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import SentenceTransformersTokenTextSplitter
 from langchain_core.documents import Document
 
@@ -53,18 +52,30 @@ def extract_date_from_text(text):
                 return None  # Return None if date format is not understood
     return None
 
+
+def get_murli_type(text):    
+    if text.lower().find('avyakt') != -1:
+        return True
+    return False
+
+
 def load_pdf(pdf_path):
     """Loads a PDF document from the given path and extracts the date metadata."""
     loader = PyPDFLoader(pdf_path)
     pages = loader.load_and_split()
     documents = []
+    # Extract date from the first page (or a more suitable page if needed)
+    first_page_text = pages[0].page_content if pages else ""
+    date = extract_date_from_text(first_page_text[:300])
+    is_avyakt = get_murli_type(first_page_text[:300])
     for page in pages:
-        text = page.page_content        
-        date = extract_date_from_text(text[:300])  # Check first 300 characters for date
+        text = page.page_content                
         metadata = page.metadata
         if date:
             metadata["date"] = date
             logger.info(f"Found date: {date}")
+        if is_avyakt:
+            metadata["is_avyakt"] = is_avyakt            
         documents.append(Document(page_content=text, metadata=metadata))
     logger.info(f"Loaded {len(documents)} documents from {pdf_path}")
     return documents
@@ -75,11 +86,6 @@ def split_text(documents, chunk_size=1000, chunk_overlap=200):
     texts = text_splitter.split_documents(documents)
     logger.info(f"Split documents into {len(texts)} chunks")
     return texts
-
-def create_embeddings():
-    """Creates embeddings using HuggingFaceEmbeddings."""
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")  # Or another suitable model
-    return embeddings
 
 def semantic_chunking(documents, model_name="sentence-transformers/all-MiniLM-L6-v2", 
                       chunk_size=128):
