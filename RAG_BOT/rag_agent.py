@@ -3,9 +3,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
 from langchain.schema import HumanMessage, AIMessage
 from langgraph.graph import START, StateGraph, END
-from config import Config
+from RAG_BOT.config import Config
 import datetime
-from logger import logger
+from RAG_BOT.logger import logger
 
 def should_retrieve_node(state: dict) -> str:
     """Decides whether to perform document retrieval based on the skip_retrieval flag."""

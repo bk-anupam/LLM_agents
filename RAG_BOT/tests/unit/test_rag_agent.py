@@ -9,16 +9,20 @@ from langgraph.graph.state import CompiledStateGraph
 
 
 # Add the parent directory to the Python path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-grand_parent_dir = os.path.dirname(parent_dir)
-sys.path.insert(0, grand_parent_dir)
+# current_dir = os.path.dirname(os.path.abspath(__file__))
+# parent_dir = os.path.dirname(current_dir)
+# grand_parent_dir = os.path.dirname(parent_dir)
+# sys.path.insert(0, grand_parent_dir)
 
-from rag_agent import should_retrieve_node, retriever_node, generator_node, build_agent
+# Add the project root to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, project_root)
+
+from RAG_BOT.rag_agent import should_retrieve_node, retriever_node, generator_node, build_agent
 
 class TestRAGAgent(unittest.TestCase):
 
-    @patch("rag_agent.logger")
+    @patch("RAG_BOT.rag_agent.logger")
     def test_should_retrieve_node(self, mock_logger):
         state = {"skip_retrieval": True}
         result = should_retrieve_node(state)
@@ -31,7 +35,7 @@ class TestRAGAgent(unittest.TestCase):
         mock_logger.info.assert_called_with("Proceeding with document retrieval.")
 
 
-    @patch("rag_agent.logger")
+    @patch("RAG_BOT.rag_agent.logger")
     def test_retriever_node(self, mock_logger):
         mock_vectordb = MagicMock(spec=Chroma)
         mock_retriever = MagicMock()
@@ -56,7 +60,7 @@ class TestRAGAgent(unittest.TestCase):
         mock_logger.info.assert_any_call("Executed retriever node and retrieved 2 documents for query: test query")
 
 
-    @patch("rag_agent.logger")
+    @patch("RAG_BOT.rag_agent.logger")
     @patch("langchain_google_genai.ChatGoogleGenerativeAI")
     def test_generator_node(self, mock_llm_class, mock_logger):
         mock_llm = MagicMock(spec=ChatGoogleGenerativeAI)
@@ -74,8 +78,8 @@ class TestRAGAgent(unittest.TestCase):
 
 
     # Outer patch for the Chroma class from rag_agent, inner patch for ChatGoogleGenerativeAI from rag_agent.
-    @patch("rag_agent.Chroma")
-    @patch("rag_agent.ChatGoogleGenerativeAI")
+    @patch("RAG_BOT.rag_agent.Chroma")
+    @patch("RAG_BOT.rag_agent.ChatGoogleGenerativeAI")
     def test_build_agent(self, mock_llm_class, mock_chroma_class):
         # Create instance mocks to pass into build_agent
         mock_vectordb_instance = MagicMock(spec=Chroma)

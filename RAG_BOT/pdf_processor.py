@@ -1,7 +1,7 @@
 import os
 import re
 from datetime import datetime
-from logger import logger
+from RAG_BOT.logger import logger
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_text_splitters import SentenceTransformersTokenTextSplitter

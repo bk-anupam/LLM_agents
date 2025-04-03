@@ -1,11 +1,11 @@
 import os
 import datetime
 import re
-from logger import logger
+from RAG_BOT.logger import logger
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-from config import Config
-from pdf_processor import load_pdf, split_text, semantic_chunking
+from RAG_BOT.config import Config
+from RAG_BOT.pdf_processor import load_pdf, split_text, semantic_chunking
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage, AIMessage
 from langchain.prompts import PromptTemplate

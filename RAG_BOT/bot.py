@@ -1,12 +1,12 @@
 import telebot
 from telebot.types import Message, Update
-from config import Config
-from logger import logger
+from RAG_BOT.config import Config
+from RAG_BOT.logger import logger
 from datetime import datetime
 import re
 import os
-from vector_store import VectorStore
-from rag_agent import build_agent
+from RAG_BOT.vector_store import VectorStore
+from RAG_BOT.rag_agent import build_agent
 from flask import Flask, request, jsonify
 
 # Initialize Flask app
