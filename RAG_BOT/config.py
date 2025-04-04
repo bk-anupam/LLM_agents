@@ -15,7 +15,7 @@ class Config:
     WEBHOOK_URL = os.environ.get('WEBHOOK_URL', None)
     PORT = int(os.environ.get('PORT', 5000))
     SEMANTIC_CHUNKING = False
-    TEMPERATURE = 0.3
+    TEMPERATURE = 0
     LLM_MODEL_NAME = "gemini-2.0-flash"
     EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
     K = 25

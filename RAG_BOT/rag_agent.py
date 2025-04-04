@@ -27,8 +27,9 @@ def retriever_node(state: dict, vectordb: Chroma) -> dict:
     k = state.get("k", 25)
     date_filter = state.get("date_filter", None)
     search_type = state.get("search_type", "similarity")
-    score_threshold = state.get("score_threshold", 0.5)
-    extra_kwargs = {"k": k, "score_threshold": score_threshold}
+    #score_threshold = state.get("score_threshold", 0.5)
+    # extra_kwargs = {"k": k, "score_threshold": score_threshold}
+    extra_kwargs = {"k": k}
     if date_filter:
         try:
             filter_date = datetime.datetime.strptime(date_filter, '%Y-%m-%d')
