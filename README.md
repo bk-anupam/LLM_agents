@@ -25,11 +25,11 @@ The graph is compiled into an executable agent that can process user queries end
 
 ### Workflow Diagram
 
-```plaintext
-START --> should_retrieve --> retriever --> generator --> END
-```
+![Agent Workflow](uploads.png)
 
 - Conditional edges allow skipping the `retriever` node if retrieval is not required.
+
+
 
 ## Installation
 
@@ -132,3 +132,6 @@ This project is licensed under the MIT License. See the `LICENSE` file for detai
 - [LangChain](https://github.com/hwchase17/langchain) for orchestration and LLM integration.
 - [ChromaDB](https://www.trychroma.com/) for vector database support.
 - [LangGraph](https://github.com/langgraph/langgraph) for graph-based workflow management.
+
+
+[def]: image.png
