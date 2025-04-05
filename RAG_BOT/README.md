@@ -11,6 +11,7 @@
 - **Modular Workflow**: Built using LangGraph's `StateGraph`, enabling a flexible and extensible pipeline with clearly defined nodes and edges.
 - **Conditional Execution**: Dynamically decides whether to perform document retrieval or directly generate responses based on the state of the query.
 - **Customizable Prompts**: Supports custom prompt templates for fine-tuned response generation tailored to specific use cases.
+- **Telegram Bot Integration**: Enables users to interact with the system via Telegram, upload PDF documents for indexing, and query the indexed data.
 
 ## How It Works
 
@@ -51,16 +52,19 @@ START --> should_retrieve --> retriever --> generator --> END
 
 ### Building and Running the Agent
 
-1. Import the `build_agent` function from `rag_agent.py`:
+1. Import the `build_agent` function from `rag_agent.py` and initialize the vector database using the `VectorStore` class:
    ```python
    from RAG_BOT.rag_agent import build_agent
-   from langchain_chroma import Chroma
+   from RAG_BOT.vector_store import VectorStore
+   from RAG_BOT.config import Config
 
    # Initialize the vector database
-   vectordb = Chroma()
+   config = Config()
+   vector_store = VectorStore(config.VECTOR_STORE_PATH)
+   vectordb = vector_store.get_vectordb()
 
    # Build the agent
-   agent = build_agent(vectordb, model_name="gemini-2.0-flash")
+   agent = build_agent(vectordb, model_name=config.LLM_MODEL_NAME)
 
    # Invoke the agent with a query
    response = agent.invoke({"query": "What is the purpose of human life?"})
@@ -71,18 +75,49 @@ START --> should_retrieve --> retriever --> generator --> END
 
 ### Telegram Bot Integration
 
-The project includes a Telegram bot implementation in `bot.py` that allows users to interact with the agent via chat. To use the bot:
-- Set up your Telegram bot token in the `.env` file.
-- Run the bot script:
-  ```bash
-  python bot.py
-  ```
+The project includes a Telegram bot implementation that allows users to interact with the system via chat. The bot provides the following functionalities:
+
+1. **Uploading PDF Documents**:
+   - Users can upload PDF documents directly to the bot.
+   - The bot processes the uploaded PDFs, extracts text, and indexes the content in the vector database for future queries.
+
+2. **Querying the Indexed Data**:
+   - Users can query the indexed data using the `/query` command followed by their query.
+   - Example: `/query What are the main points regarding remembrance that Baba talks about?`
+   - Users can also include a date filter in their query using the format `date:YYYY-MM-DD`.
+   - Example: `/query What are the main points regarding remembrance? date:1969-02-02`
+
+3. **General Queries**:
+   - Users can ask general questions, and the bot will respond using the LLM without relying on the indexed data.
+
+4. **Help and Commands**:
+   - The bot provides a `/help` command to display available commands and usage instructions.
+
+#### Running the Telegram Bot
+
+1. Set up your Telegram bot token in the `.env` file:
+   ```plaintext
+   TELEGRAM_BOT_TOKEN=<your-telegram-bot-token>
+   ```
+
+2. Run the bot script:
+   ```bash
+   python bot.py
+   ```
+
+3. Interact with the bot on Telegram:
+   - Start the bot by sending the `/start` command.
+   - Upload PDF documents or send queries to get responses.
 
 ## Configuration
 
 The project uses a centralized configuration class (`Config`) defined in `config.py`. Key settings include:
 - **Temperature**: Controls the randomness of the LLM's responses.
 - **System Prompt**: Defines the base instructions for the LLM.
+- **VECTOR_STORE_PATH**: Path to the directory where the vector database is stored.
+- **LLM_MODEL_NAME**: Name of the LLM model to use for response generation.
+- **TELEGRAM_BOT_TOKEN**: Token for the Telegram bot.
+- **WEBHOOK_URL**: URL for setting up the Telegram bot webhook.
 
 ## Contributing
 
