@@ -43,8 +43,7 @@ def retriever_node(state: dict, vectordb: Chroma) -> dict:
     retriever = vectordb.as_retriever(search_type=search_type, search_kwargs=extra_kwargs)
     retrieved_docs = retriever.invoke(query)
     context = "\n\n".join([doc.page_content for doc in retrieved_docs])
-    logger.info(f"Executed retriever node and retrieved {len(retrieved_docs)} documents for query: {query}")
-    logger.info(f"Context for query: {context}")
+    logger.info(f"Executed retriever node and retrieved {len(retrieved_docs)} documents for query: {query}")    
     return {"context": context, "query": raw_query}
 
 
@@ -54,8 +53,7 @@ def generator_node(state: dict, llm: ChatGoogleGenerativeAI) -> dict:
     system_prompt_text = Config.SYSTEM_PROMPT
     # Get context, default to empty string if not present
     context = state.get("context", "")  
-    query = state["query"]
-    logger.info(f"Executing generator node with query: {query} and context: {context}")
+    query = state["query"]    
     if context:
         custom_prompt = PromptTemplate(
             input_variables=["context", "question"],
@@ -76,8 +74,7 @@ def generator_node(state: dict, llm: ChatGoogleGenerativeAI) -> dict:
         )
         formatted_query = custom_prompt.format(question=query)
     messages = [HumanMessage(content=formatted_query)]
-    response = llm.invoke(messages)
-    logger.info(f"Generated response: {response}")
+    response = llm.invoke(messages)    
     if isinstance(response, AIMessage):
         logger.info(f"Executed generator node and generated response: {response.content}")
         return {"answer": response.content}

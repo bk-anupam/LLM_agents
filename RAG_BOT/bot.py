@@ -1,13 +1,20 @@
 import telebot
+import sys
 from telebot.types import Message, Update
-from RAG_BOT.config import Config
-from RAG_BOT.logger import logger
 from datetime import datetime
 import re
 import os
-from RAG_BOT.vector_store import VectorStore
-from RAG_BOT.rag_agent import build_agent
 from flask import Flask, request, jsonify
+
+# Add the project root to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
+
+from config import Config
+from logger import logger
+from vector_store import VectorStore
+from rag_agent import build_agent
+
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -60,7 +67,7 @@ def send_response(message, user_id, response_text):
     # Maximum allowed message length in Telegram (adjust if needed)
     max_telegram_length = 4096  
     chunks = [response_text[i:i + max_telegram_length] for i in range(0, len(response_text), max_telegram_length)]
-    logger.info(f"Sending query response to user {user_id}: {response_text}")  
+    logger.info(f"Sending query response to user {user_id}")  
     for chunk in chunks:
         try:
             # Send each chunk as a separate message
