@@ -1,123 +1,124 @@
-# LLM_agents
+# RAG_BOT: Telegram RAG Agent for Spiritual Documents
 
-## Overview
+This project implements a Telegram bot powered by a Retrieval-Augmented Generation (RAG) agent built with Langchain and LangGraph. The agent is designed to answer questions based on a collection of spiritual documents stored in a ChromaDB vector store.
 
-**LLM_agents** is a framework for building intelligent, agentic systems using Large Language Models (LLMs). This project leverages LangChain, ChromaDB, and LangGraph to create a modular and extensible pipeline for document retrieval, context generation, and response generation. The system is designed to handle complex queries by retrieving relevant information from a vector database and generating accurate, context-aware responses using LLMs.
+## Features
 
-## Key Features
+*   **Telegram Interface:** Interact with the RAG agent directly through Telegram.
+*   **RAG Pipeline:** Utilizes a sophisticated LangGraph agent for:
+    *   Retrieving relevant context from spiritual documents based on user queries.
+    *   Evaluating the relevance of retrieved context.
+    *   Reframing the user's query if the initial context is insufficient.
+    *   Generating answers grounded in the retrieved documents using Google's Gemini models.
+*   **Vector Store:** Uses ChromaDB to store and query document embeddings.
+*   **Document Indexing:** Upload PDF documents directly to the Telegram bot for automatic indexing into the vector store.
+*   **Date Filtering:** Supports filtering queries by date using the format `date:YYYY-MM-DD` within the `/query` command or general messages.
+*   **Session Management:** Basic in-memory session handling for conversation context (via `MessageHandler`).
+*   **Webhook Deployment:** Designed for deployment using Flask and Telegram webhooks.
+*   **Configuration:** Centralized configuration management (`config.py`).
+*   **Logging:** Structured logging for monitoring and debugging (`logger.py`).
+*   **Integration Tests:** Includes tests to verify core functionalities like indexing, retrieval, and agent logic.
 
-- **Document Retrieval**: Uses a vector database (ChromaDB) to retrieve the most relevant documents based on user queries. Supports advanced filtering options like date-based filtering.
-- **Context-Aware Response Generation**: Combines retrieved documents with user queries to generate detailed and accurate responses using LLMs such as `ChatGoogleGenerativeAI`.
-- **Modular Workflow**: Built using LangGraph's `StateGraph`, enabling a flexible and extensible pipeline with clearly defined nodes and edges.
-- **Conditional Execution**: Dynamically decides whether to perform document retrieval or directly generate responses based on the state of the query.
-- **Customizable Prompts**: Supports custom prompt templates for fine-tuned response generation tailored to specific use cases.
-- **Telegram Bot Integration**: Enables users to interact with the system via Telegram, upload PDF documents for indexing, and query the indexed data.
+## Technology Stack
+
+*   **Python:** Core programming language.
+*   **Langchain & LangGraph:** Framework for building the RAG agent and defining the workflow.
+*   **Google Generative AI (Gemini):** LLM used for understanding queries, evaluating context, reframing questions, and generating answers.
+*   **ChromaDB:** Vector database for storing and retrieving document embeddings.
+*   **Sentence Transformers:** (via `langchain-huggingface`) For generating document embeddings.
+*   **pyTelegramBotAPI:** Library for interacting with the Telegram Bot API.
+*   **Flask:** Web framework for handling Telegram webhooks.
 
 ## How It Works
 
-The system is built around a LangGraph `StateGraph` that orchestrates the flow of data between different nodes:
+Think of the bot as an intelligent assistant that uses a specific process to answer your questions, especially those about the indexed spiritual documents. Here's the flow:
 
-1. **`should_retrieve` Node**: Determines whether document retrieval is necessary based on the query state.
-2. **`retriever` Node**: Retrieves relevant documents from the vector database using semantic search and optional filters.
-3. **`generator` Node**: Generates a response using the retrieved context and the query, leveraging an LLM.
+1.  **Query Analysis:** First, the agent analyzes your question. Does it need to consult the documents, or is it a general question it already knows?
+2.  **Smart Retrieval:** If documents are needed, it searches the knowledge base (ChromaDB) for the most relevant snippets based on your query.
+3.  **Relevance Check:** The agent doesn't just blindly use what it finds. It evaluates if the retrieved information *actually* helps answer your original question.
+4.  **Self-Correction Loop:** If the initial context isn't good enough, the agent smartly rephrases the query and tries searching again – a built-in retry mechanism for better results.
+5.  **Grounded Generation:** Finally, using the validated context, the agent generates a clear answer. If no relevant context is found even after the retry, it informs the user gracefully.
 
-The graph is compiled into an executable agent that can process user queries end-to-end.
+This graph-based approach allows the agent to dynamically decide its path, evaluate its own findings, and even self-correct, leading to more accurate and relevant answers.
 
 ### Workflow Diagram
 
-```plaintext
-START --> should_retrieve --> retriever --> generator --> END
-```
+The following diagram visualizes the agent's workflow:
 
-- Conditional edges allow skipping the `retriever` node if retrieval is not required.
+!RAG Agent Workflow(rag_agent_graph.png)
 
-## Installation
+## Setup
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-repo/LLM_agents.git
-   cd LLM_agents/RAG_BOT
-   ```
+1.  **Clone the repository:**
+    ```bash
+    git clone <your-repository-url>
+    cd RAG_BOT
+    ```
 
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+2.  **Create a virtual environment:**
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+    ```
 
-3. Set up environment variables:
-   - Create a `.env` file in the `RAG_BOT` directory.
-   - Add necessary configuration values (e.g., API keys, database connection details).
+3.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+4.  **Configure Environment Variables:**
+    Create a `.env` file in the project root directory and add the following variables:
+    ```dotenv
+    # Telegram
+    TELEGRAM_BOT_TOKEN="YOUR_TELEGRAM_BOT_TOKEN"
+    WEBHOOK_URL="YOUR_PUBLIC_HTTPS_URL_FOR_WEBHOOK" # e.g., from ngrok or your deployment
+
+    # Google Gemini
+    GEMINI_API_KEY="YOUR_GOOGLE_API_KEY"
+
+    # Paths (adjust if needed)
+    VECTOR_STORE_PATH="./chroma_db" # Default path for ChromaDB
+
+    # Agent/Model Config (adjust defaults in config.py or override here)
+    # LLM_MODEL_NAME="gemini-1.5-flash-latest" # Or another compatible Gemini model
+    # EMBEDDING_MODEL_NAME="all-MiniLM-L6-v2"
+    # TEMPERATURE=0.1
+    # K=10 # Number of documents to retrieve
+    # SEARCH_TYPE="similarity" # Or "mmr"
+    # SEMANTIC_CHUNKING=True # Or False
+    # MAX_CONVERSATION_HISTORY=10
+    # PORT=5000 # Port for Flask app
+    ```
+    *   Replace placeholders with your actual credentials and desired settings.
+    *   Ensure the `WEBHOOK_URL` is a publicly accessible HTTPS URL pointing to where your Flask app will run. Tools like `ngrok` can be useful for local development.
 
 ## Usage
 
-### Building and Running the Agent
+1.  **Start the Bot:**
+    Run the Flask application:
+    ```bash
+    python bot.py
+    ```
+    This will start the Flask server and set up the Telegram webhook.
 
-1. Import the `build_agent` function from `rag_agent.py` and initialize the vector database using the `VectorStore` class:
-   ```python
-   from RAG_BOT.rag_agent import build_agent
-   from RAG_BOT.vector_store import VectorStore
-   from RAG_BOT.config import Config
+2.  **Interact with the Bot on Telegram:**
+    *   Find your bot on Telegram.
+    *   Send `/start` to initiate interaction.
+    *   Send `/help` to see available commands.
+    *   **Upload PDFs:** Send PDF documents directly to the chat to have them indexed.
+    *   **Query Documents:**
+        *   Use the `/query` command: `/query What is the essence of the Murli?`
+        *   Query with a date filter: `/query Summarize the main points date:1969-01-18`
+        *   Send a general message: `What were the main points about soul consciousness on 1969-01-23?` (The agent will attempt retrieval).
+    *   **General Questions:** Ask general knowledge questions (e.g., "What is the capital of France?"). The agent should answer directly without using the retrieval tool.
 
-   # Initialize the vector database
-   config = Config()
-   vector_store = VectorStore(config.VECTOR_STORE_PATH)
-   vectordb = vector_store.get_vectordb()
+## Running Tests
 
-   # Build the agent
-   agent = build_agent(vectordb, model_name=config.LLM_MODEL_NAME)
+Navigate to the project root directory and run the integration tests using `unittest`:
 
-   # Invoke the agent with a query
-   response = agent.invoke({"query": "What is the purpose of human life?"})
-   print(response)
-   ```
-
-2. Customize the agent by modifying the nodes or parameters in `rag_agent.py`.
-
-### Telegram Bot Integration
-
-The project includes a Telegram bot implementation that allows users to interact with the system via chat. The bot provides the following functionalities:
-
-1. **Uploading PDF Documents**:
-   - Users can upload PDF documents directly to the bot.
-   - The bot processes the uploaded PDFs, extracts text, and indexes the content in the vector database for future queries.
-
-2. **Querying the Indexed Data**:
-   - Users can query the indexed data using the `/query` command followed by their query.
-   - Example: `/query What are the main points regarding remembrance that Baba talks about?`
-   - Users can also include a date filter in their query using the format `date:YYYY-MM-DD`.
-   - Example: `/query What are the main points regarding remembrance? date:1969-02-02`
-
-3. **General Queries**:
-   - Users can ask general questions, and the bot will respond using the LLM without relying on the indexed data.
-
-4. **Help and Commands**:
-   - The bot provides a `/help` command to display available commands and usage instructions.
-
-#### Running the Telegram Bot
-
-1. Set up your Telegram bot token in the `.env` file:
-   ```plaintext
-   TELEGRAM_BOT_TOKEN=<your-telegram-bot-token>
-   ```
-
-2. Run the bot script:
-   ```bash
-   python bot.py
-   ```
-
-3. Interact with the bot on Telegram:
-   - Start the bot by sending the `/start` command.
-   - Upload PDF documents or send queries to get responses.
-
-## Configuration
-
-The project uses a centralized configuration class (`Config`) defined in `config.py`. Key settings include:
-- **Temperature**: Controls the randomness of the LLM's responses.
-- **System Prompt**: Defines the base instructions for the LLM.
-- **VECTOR_STORE_PATH**: Path to the directory where the vector database is stored.
-- **LLM_MODEL_NAME**: Name of the LLM model to use for response generation.
-- **TELEGRAM_BOT_TOKEN**: Token for the Telegram bot.
-- **WEBHOOK_URL**: URL for setting up the Telegram bot webhook.
+```bash
+python -m unittest discover -s RAG_BOT/tests/integration -p 'test_*.py'
+```
 
 ## Contributing
 
