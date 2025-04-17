@@ -226,19 +226,6 @@ def decide_next_step(state: AgentState) -> Literal["reframe_query", "agent_final
         logger.info("Decision: Context insufficient after retry, proceed to 'cannot find' message.")
         return "agent_final_answer" # Route to agent node for "cannot find" message
 
-# --- Tool Node Definition ---
-# We need a wrapper function for the ToolNode that extracts the 'current_query' from the state
-def get_retriever_tool_input(state: AgentState) -> dict:
-    """Extracts the current query for the retriever tool."""
-    query = state.get('current_query')
-    # Potentially extract date filter from state if needed in the future
-    # date_filter = state.get('date_filter')
-    if not query:
-        logger.error("Current query not found in state for retrieval tool!")
-        # Handle error - maybe raise exception or return a default query?
-        return {"query": state.get('original_query', " ")} # Fallback to original or empty
-    return {"query": query} # Add other args like date_filter if necessary
-
 
 # Initial decision: retrieve or end?
 # We need a condition to check if the agent_initial decided to call the tool
@@ -323,12 +310,12 @@ def build_agent(vectordb: Chroma, model_name: str = Config.LLM_MODEL_NAME) -> St
     builder.add_edge("agent_final_answer", END)
     # Compile the graph
     graph = builder.compile()
-    # Optional: Save graph visualization
-    try:
-        graph.get_graph().draw_mermaid_png(output_file_path="rag_agent_graph.png")
-        logger.info("Saved graph visualization to rag_agent_graph.png")
-    except Exception as e:
-        logger.warning(f"Could not save graph visualization: {e}")
+    # # Optional: Save graph visualization
+    # try:
+    #     graph.get_graph().draw_mermaid_png(output_file_path="rag_agent_graph.png")
+    #     logger.info("Saved graph visualization to rag_agent_graph.png")
+    # except Exception as e:
+    #     logger.warning(f"Could not save graph visualization: {e}")
     logger.info("LangGraph agent compiled successfully...")
     return graph
 

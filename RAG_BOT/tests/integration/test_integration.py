@@ -65,99 +65,149 @@ class TestIntegration(unittest.TestCase):
     def test_agent_with_retrieval(self):
         """Tests the agent's ability to retrieve context using the tool."""
         agent = build_agent(vectordb=self.vectordb, model_name=self.config.LLM_MODEL_NAME)
-        # Define the query, explicitly mentioning the date to guide the LLM tool usage
-        query = "From the murli dated 1969-01-18, answer the following: " \
-                "'Together with love, also become an embodiment of what so that there will be success?' " \
-                "Give the answer in one word. Please provide your answer strictly in the following JSON format: " \
-                "{\"answer\": \"<your answer>\"}"
-
-        # Invoke the agent using the LangGraph message format
+        query = (
+            "What is the title of the murli from 1969-01-23?"
+            "Please provide your answer strictly in the following JSON format: "
+            '{"answer": "<your answer>"}'
+        )
         initial_state = {"messages": [HumanMessage(content=query)]}
         final_state = agent.invoke(initial_state)
 
-        # Verify the output from the final message
         self.assertIsInstance(final_state, dict)
         self.assertIn("messages", final_state)
-        self.assertGreater(len(final_state["messages"]), 1) # Should have Human and AIMessage
+        messages = final_state["messages"]
+        self.assertGreater(len(messages), 1)
 
-        # The final answer is typically the last AIMessage
-        final_answer_message = final_state['messages'][-1]
-        self.assertEqual(final_answer_message.type, "ai", "Last message should be from AI")
+        # Check that the tool was called at least once
+        from langchain_core.messages import AIMessage
+        tool_called = any(
+            isinstance(msg, AIMessage) and msg.tool_calls and
+            any(tc.get("name") == "retrieve_context" for tc in msg.tool_calls)
+            for msg in messages
+        )
+        self.assertTrue(tool_called, "The 'retrieve_context' tool was not called as expected.")
+
+        # Check the final answer
+        final_answer_message = messages[-1]
+        self.assertEqual(final_answer_message.type, "ai")
         final_answer_content = final_answer_message.content
-        self.assertIsInstance(final_answer_content, str, "Final answer content is not a string.")
+        self.assertIsInstance(final_answer_content, str)
         json_str = final_answer_content.strip()
-        logger.info(f"Final answer content: {json_str}")
-        # Remove triple backtick code block if present
         if json_str.startswith("```"):
             json_str = re.sub(r"^```(?:json)?\s*([\s\S]*?)\s*```$", r"\1", json_str.strip(), flags=re.MULTILINE)
-
         try:
-            # Attempt to parse the JSON directly from the content
             json_result = json.loads(json_str)
-            self.assertIn("answer", json_result, "Answer key missing in JSON response.")
-            self.assertEqual(json_result["answer"].lower(), "power", "Retrieved answer is incorrect.")
-        except json.JSONDecodeError:
-            self.fail(f"Final answer is not valid JSON: {final_answer_content}")
+            self.assertIn("answer", json_result)
+            self.assertEqual(json_result["answer"].lower(), "the ashes are to remind you of the stage")
         except Exception as e:
-            self.fail(f"An unexpected error occurred during result verification: {e}")
+            self.fail(f"Final answer is not valid JSON or incorrect: {final_answer_content} ({e})")
 
 
     def test_agent_without_retrieval(self):
         """Tests the agent's ability to answer a general question without retrieval."""
         agent = build_agent(vectordb=self.vectordb, model_name=self.config.LLM_MODEL_NAME)
-        # Define a general knowledge query unlikely to trigger the retriever tool
-        query = "What is the capital of France? Provide your answer strictly in the following JSON format: " \
-                "{\"answer\": \"<your answer>\"}"
-
-        # Invoke the agent using the LangGraph message format
+        query = (
+            "What is the capital of France? Provide your answer strictly in the following JSON format: "
+            '{"answer": "<your answer>"}'
+        )
         initial_state = {"messages": [HumanMessage(content=query)]}
         final_state = agent.invoke(initial_state)
 
-        # Verify the output from the final message
         self.assertIsInstance(final_state, dict)
         self.assertIn("messages", final_state)
-        from langchain_core.messages import AIMessage, ToolMessage # Import necessary message types
+        messages = final_state["messages"]
+        self.assertGreater(len(messages), 1)
 
-        messages = final_state['messages']
-        self.assertGreater(len(messages), 1) # Should have Human and AIMessage
+        from langchain_core.messages import AIMessage
+        # Ensure no tool call was made
+        tool_called = any(
+            isinstance(msg, AIMessage) and msg.tool_calls and
+            any(tc.get("name") == "retrieve_context" for tc in msg.tool_calls)
+            for msg in messages
+        )
+        self.assertFalse(tool_called, "The 'retrieve_context' tool was called unexpectedly.")
 
-        # Verify that the 'retrieve_context' tool was not called.
-        retrieve_context_called = False
-        for msg in messages:
-            # Check if an AIMessage requested the specific tool call
-            if isinstance(msg, AIMessage) and msg.tool_calls:
-                for tool_call in msg.tool_calls:
-                    # The tool name might be structured, e.g., 'context_retriever_tool.retrieve_context'
-                    # or just 'retrieve_context' depending on how the tool is defined and bound.
-                    # Check for both possibilities or adjust based on your exact tool naming.
-                    if tool_call.get('name') == 'retrieve_context' or tool_call.get('name') == 'context_retriever_tool':
-                        retrieve_context_called = True
-                        logger.warning(f"Unexpected 'retrieve_context' tool call found: {tool_call}")
-                        break           
-
-        self.assertFalse(retrieve_context_called, "The 'retrieve_context' tool was called unexpectedly.")
-
-        # The final answer is typically the last AIMessage
         final_answer_message = messages[-1]
-        self.assertEqual(final_answer_message.type, "ai", "Last message should be from AI")
+        self.assertEqual(final_answer_message.type, "ai")
         final_answer_content = final_answer_message.content
-        self.assertIsInstance(final_answer_content, str, "Final answer content is not a string.")
+        self.assertIsInstance(final_answer_content, str)
         json_str = final_answer_content.strip()
-        logger.info(f"Final answer content: {json_str}")
-        # Remove triple backtick code block if present
         if json_str.startswith("```"):
             json_str = re.sub(r"^```(?:json)?\s*([\s\S]*?)\s*```$", r"\1", json_str.strip(), flags=re.MULTILINE)
         try:
-            # Attempt to parse the JSON directly from the content
             json_result = json.loads(json_str)
-            self.assertIn("answer", json_result, "Answer key missing in JSON response.")
-            # Check for the expected general knowledge answer
-            self.assertEqual(json_result["answer"].lower(), "paris", "General knowledge answer is incorrect.")
-        except json.JSONDecodeError:
-            self.fail(f"Final answer is not valid JSON: {final_answer_content}")
+            self.assertIn("answer", json_result)
+            self.assertEqual(json_result["answer"].lower(), "paris")
         except Exception as e:
-            self.fail(f"An unexpected error occurred during result verification: {e}")
+            self.fail(f"Final answer is not valid JSON or incorrect: {final_answer_content} ({e})")
 
+
+    def test_agent_insufficient_context(self):
+        """Test agent response when no relevant context is found in the database."""
+        agent = build_agent(vectordb=self.vectordb, model_name=self.config.LLM_MODEL_NAME)
+        query = (
+            "Can you summarize the murli from 1970-01-18? Please provide your answer strictly in the following JSON format: "
+            '{"answer": "<your answer>"}'
+        )
+        initial_state = {"messages": [HumanMessage(content=query)]}
+        final_state = agent.invoke(initial_state)
+
+        self.assertIsInstance(final_state, dict)
+        self.assertIn("messages", final_state)
+        messages = final_state["messages"]
+        self.assertGreater(len(messages), 0)
+
+        final_answer_message = messages[-1]
+        self.assertEqual(final_answer_message.type, "ai")
+        final_answer_content = final_answer_message.content.lower()
+        self.assertTrue(
+            "cannot be found" in final_answer_content or "cannot find" in final_answer_content,
+            f"Agent did not return a 'cannot find' message: {final_answer_content}"
+        )
+        # Check state reflects insufficient evaluation
+        self.assertEqual(final_state.get("evaluation_result"), "insufficient", 
+                         "Agent state should indicate evaluation_result was insufficient")
+
+
+    def test_agent_retry_logic_reframing(self):
+        """Test agent retry logic by asking an ambiguous question that should trigger reframing."""
+        agent = build_agent(vectordb=self.vectordb, model_name=self.config.LLM_MODEL_NAME)
+        # This question is intentionally vague to trigger a reframe
+        query = (
+            "Can you summarize the murli from 1970-01-18? Please provide your answer strictly in the following JSON format: "
+            '{"answer": "<your answer>"}'
+        )
+        initial_state = {"messages": [HumanMessage(content=query)]}
+        final_state = agent.invoke(initial_state)
+
+        self.assertIsInstance(final_state, dict)
+        self.assertIn("messages", final_state)
+        messages = final_state["messages"]
+        self.assertGreater(len(messages), 1)
+
+        from langchain_core.messages import AIMessage
+        # Check that at least one tool call was made (original or after reframing)
+        tool_calls = [
+            msg for msg in messages
+            if isinstance(msg, AIMessage) and msg.tool_calls and
+            any(tc.get("name") == "retrieve_context" for tc in msg.tool_calls)
+        ]
+        self.assertGreaterEqual(len(tool_calls), 1, "No tool call was made during retry logic.")
+        # Check state reflects retry attempt
+        self.assertTrue(final_state.get("retry_attempted"), "Agent state should indicate retry_attempted was True")
+
+        # Optionally, check that the answer is in JSON format
+        final_answer_message = messages[-1]
+        self.assertEqual(final_answer_message.type, "ai")
+        final_answer_content = final_answer_message.content
+        json_str = final_answer_content.strip()
+        if json_str.startswith("```"):
+            json_str = re.sub(r"^```(?:json)?\s*([\s\S]*?)\s*```$", r"\1", json_str.strip(), flags=re.MULTILINE)
+        try:
+            json_result = json.loads(json_str)
+            self.assertIn("answer", json_result)
+        except Exception as e:
+            self.fail(f"Final answer is not valid JSON: {final_answer_content} ({e})")
 
 if __name__ == "__main__":
     unittest.main()
