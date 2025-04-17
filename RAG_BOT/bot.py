@@ -14,6 +14,8 @@ from config import Config
 from logger import logger
 from vector_store import VectorStore
 from rag_agent import build_agent
+from langchain_core.messages import HumanMessage
+from message_handler import MessageHandler
 
 
 # Initialize Flask app
@@ -141,104 +143,30 @@ def handle_query(message: Message):
         if not query:
             bot.reply_to(message, "Please provide a query after the /query command.")
             return
-        # Set dynamic parameters (these could also be extracted from the query text or user preferences)
-        # Number of documents to retrieve
-        k = config.K
-        search_type = config.SEARCH_TYPE  
-        # Minimum similarity score
-        score_threshold = config.SCORE_THRESHOLD
-        # Invoke the agent with dynamic parameters
-        result = agent.invoke({
-            "query": query,
-            "skip_retrieval": False,
-            "next": None,
-            "k": k,
-            "date_filter": date_filter,
-            "search_type": search_type,
-            "score_threshold": score_threshold,
-        })
-        # Extract the answer from the agent's output
-        answer = result.get("answer", "Sorry, I couldn't find an answer.")
+
+        # Build the initial state for the agent
+        user_message = query
+        if date_filter:
+            user_message += f" (Date: {date_filter})"
+        initial_state = {"messages": [HumanMessage(content=user_message)]}
+
+        # Invoke the agent
+        final_state = agent.invoke(initial_state)
+        answer = None
+        if isinstance(final_state, dict) and "messages" in final_state and final_state["messages"]:
+            last_msg = final_state["messages"][-1]
+            if hasattr(last_msg, "content"):
+                answer = last_msg.content
+        if not answer:
+            answer = "Sorry, I couldn't find an answer."
         send_response(message, message.from_user.id, answer)
     except Exception as e:
         logger.error(f"Error handling query: {str(e)}")
         bot.reply_to(message, "Sorry, I encountered an error processing your query.")
 
 
-# Message handler class
-class MessageHandler:
-    def __init__(self):
-        # Store user session data (could be moved to a database for persistence)
-        self.sessions = config.USER_SESSIONS
-    
-    def _get_user_session(self, user_id):
-        """Get or create a new session for the user"""
-        if user_id not in self.sessions:
-            self.sessions[user_id] = {
-                'last_interaction': datetime.now(),
-                'conversation': [],
-                'context': {}
-            }
-        return self.sessions[user_id]
-    
-    def _update_session(self, user_id, message, response):
-        """Update the user session with new interaction"""
-        session = self._get_user_session(user_id)
-        session['last_interaction'] = datetime.now()
-        session['conversation'].append({
-            'user': message,
-            'bot': response,
-            'timestamp': datetime.now().isoformat()
-        })
-        # Limit conversation history (optional)
-        if len(session['conversation']) > 10:
-            session['conversation'] = session['conversation'][-10:]
-    
-    def process_message(self, incoming_message: Message):
-        """
-        Process the incoming message and generate a response
-        This is where you implement your custom logic
-        """
-        user_id = incoming_message.from_user.id
-        message = incoming_message.text        
-        logger.info(f"Received message from {user_id}: {message}")        
-        # Get user session
-        session = self._get_user_session(user_id)        
-        # Convert message to lowercase for easier matching
-        message_lower = message.lower().strip()        
-        # Basic response logic
-        if any(greeting in message_lower for greeting in ['hello', 'hi', 'hey']):
-            response = "👋 Hello! I'm your Telegram assistant. How can I help you today?"        
-        elif "help" in message_lower:
-            response = ("Here's what I can do:\n"
-                      "- Answer your query (on pdf documents uploaded). Use /query command followed by the query for this\n"
-                      "- index and store in vector DB uploaded pdf documents. Just send the pdf document as a message\n"
-                      "- answer any general query \n" 
-                      "- last message - to see your last message\n"                     
-                      "Just let me know what you need!")                        
-        # Example of checking conversation history
-        elif "last message" in message_lower:
-            if len(session['conversation']) > 0:
-                last_message = session['conversation'][-1]['user']
-                response = f"Your last message was: '{last_message}'"
-            else:
-                response = "You haven't sent any previous messages."        
-        # Default response for unknown inputs
-        else:            
-            try:
-                logger.info(f"thread_id = {str(incoming_message.chat.id)}, query = {message}")
-                config = {"configurable": {"thread_id": str(incoming_message.chat.id)}}
-                result = agent.invoke({"query": message, "skip_retrieval": True, "next": None}, config)
-                response = result.get("answer", "Sorry, I couldn't find an answer.")
-            except Exception as e:
-                logger.error(f"Error invoking RAG agent: {str(e)}")
-                response = "Sorry, I encountered an error processing your query." 
-        # Update session with this interaction
-        self._update_session(user_id, message, response)        
-        return response
-
 # Initialize message handler
-handler = MessageHandler()
+handler = MessageHandler(agent=agent, config=config)
 
 
 @bot.message_handler(func=lambda message: True)
@@ -284,4 +212,4 @@ if __name__ == "__main__":
 
 
 def start_bot():
-    bot.infinity_polling()        
+    bot.infinity_polling()
