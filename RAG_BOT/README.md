@@ -1,4 +1,4 @@
-# RAG_BOT: Telegram RAG Agent for Spiritual Documents
+# RAG_BOT: Telegram RAG Agent to answer spiritual questions
 
 This project implements a Telegram bot powered by a Retrieval-Augmented Generation (RAG) agent built with Langchain and LangGraph. The agent is designed to answer questions based on a collection of spiritual documents stored in a ChromaDB vector store.
 
