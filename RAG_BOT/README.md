@@ -45,8 +45,7 @@ This graph-based approach allows the agent to dynamically decide its path, evalu
 
 The following diagram visualizes the agent's workflow:
 
-![alt text](image.png)
-
+![Agent Workflow](rag_agent_graph.png)
 ## Setup
 
 1.  **Clone the repository:**
@@ -133,3 +132,5 @@ This project is licensed under the MIT License. See the `LICENSE` file for detai
 - [LangChain](https://github.com/hwchase17/langchain) for orchestration and LLM integration.
 - [ChromaDB](https://www.trychroma.com/) for vector database support.
 - [LangGraph](https://github.com/langgraph/langgraph) for graph-based workflow management.
+
+[def]: image.png
