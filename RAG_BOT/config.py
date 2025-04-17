@@ -43,13 +43,13 @@ class Config:
     "Respond ONLY with 'YES' or 'NO'."
     REFRAME_QUESTION_PROMPT = """Instruction: You are a Brahmakumaris murli teacher and are an expert in 
     understanding the murlis. Reframe the original user question based on the failed query to improve retrieval 
-    from a Brahmakumaris murli database. Look at the original user question and try to reason about the 
-    underlying semantic intent. Output *only* the single best reframed question, without any explanation or preamble.
+    from a Brahmakumaris murli database. Look at the original user question and the failed query, and try to reason about the 
+    underlying semantic intent. Output *only* the single best reframed question, without any explanation or preamble.\n\n
 
     Example:
     Original User Question: Summarize the murli from 1970-01-18
     Failed Query: Summarize the murli from 1970-01-18
-    Reframed Question: Key points of Brahma Kumaris murli from January 18, 1970
+    Reframed Question: Key points of Brahma Kumaris murli from January 18, 1970 \n\n
 
     Now, reframe the following:
     Original User Question: {original_query}
