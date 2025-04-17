@@ -45,7 +45,7 @@ This graph-based approach allows the agent to dynamically decide its path, evalu
 
 The following diagram visualizes the agent's workflow:
 
-!RAG Agent Workflow(rag_agent_graph.png)
+![alt text](image.png)
 
 ## Setup
 
