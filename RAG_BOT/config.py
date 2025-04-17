@@ -37,3 +37,21 @@ class Config:
     "Offer insights into how these teachings can help the seeker overcome challenges and achieve spiritual progress. \n"
     QUESTION_PROMPT = "Now answer the following question: \n\n"     
     SYSTEM_PROMPT = BK_PROMPT + QUESTION_PROMPT
+    EVALUATE_CONTEXT_PROMPT = "You are an expert evaluator. Your task is to determine if the " \
+    "provided context is sufficient and relevant to answer the " \
+    "original user question based on Brahmakumaris teachings. " \
+    "Respond ONLY with 'YES' or 'NO'."
+    REFRAME_QUESTION_PROMPT = """Instruction: You are a Brahmakumaris murli teacher and are an expert in 
+    understanding the murlis. Reframe the original user question based on the failed query to improve retrieval 
+    from a Brahmakumaris murli database. Look at the original user question and try to reason about the 
+    underlying semantic intent. Output *only* the single best reframed question, without any explanation or preamble.
+
+    Example:
+    Original User Question: Summarize the murli from 1970-01-18
+    Failed Query: Summarize the murli from 1970-01-18
+    Reframed Question: Key points of Brahma Kumaris murli from January 18, 1970
+
+    Now, reframe the following:
+    Original User Question: {original_query}
+    Failed Query: {failed_query}
+    Reframed Question:"""
