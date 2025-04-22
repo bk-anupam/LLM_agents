@@ -12,10 +12,12 @@ class Config:
     # Optional: API keys for external services
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', None)
     VECTOR_STORE_PATH = os.environ.get('VECTOR_STORE_PATH', None)
+    DATA_PATH = os.environ.get('DATA_PATH', None)
     WEBHOOK_URL = os.environ.get('WEBHOOK_URL', None)
     PORT = int(os.environ.get('PORT', 5000))
     SEMANTIC_CHUNKING = False
     TEMPERATURE = 0
+    CONVERSATION_HISTORY_LIMIT = 10
     # LLM_MODEL_NAME = "gemini-2.5-pro-exp-03-25"
     LLM_MODEL_NAME = "gemini-2.0-flash"
     EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"

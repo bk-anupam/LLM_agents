@@ -68,14 +68,17 @@ def load_pdf(pdf_path):
     first_page_text = pages[0].page_content if pages else ""
     date = extract_date_from_text(first_page_text[:300])
     is_avyakt = get_murli_type(first_page_text[:300])
-    for page in pages:
+    for counter, page in enumerate(pages):        
         text = page.page_content                
-        metadata = page.metadata
+        metadata = page.metadata        
         if date:
             metadata["date"] = date
-            logger.info(f"Found date: {date}")
+            if counter == 0:
+                logger.info(f"Found date: {date}")
         if is_avyakt:
-            metadata["is_avyakt"] = is_avyakt            
+            metadata["is_avyakt"] = is_avyakt
+            if counter == 0:
+                logger.info(f"Found is_avyakt: {is_avyakt}")            
         documents.append(Document(page_content=text, metadata=metadata))
     logger.info(f"Loaded {len(documents)} documents from {pdf_path}")
     return documents
