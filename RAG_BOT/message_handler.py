@@ -5,10 +5,11 @@ from RAG_BOT.logger import logger # Corrected import path based on other files
 from langchain_core.messages import HumanMessage
 from telebot.types import Message
 from langgraph.graph import StateGraph
+from RAG_BOT.utils import parse_json_answer 
 
 
 class MessageHandler:
-    def __init__(self, agent: StateGraph, config: Config, vector_store=None): # Added vector_store based on bot.py usage
+    def __init__(self, agent: StateGraph, config: Config, vector_store=None): 
         # Store user session data (could be moved to a database for persistence)
         self.config = config
         self.sessions = config.USER_SESSIONS
@@ -98,8 +99,9 @@ class MessageHandler:
                     if isinstance(final_messages, list) and final_messages:
                         # Get the last message, assuming it's the agent's response
                         last_msg = final_messages[-1]
-                        if hasattr(last_msg, 'content'):
-                            answer = last_msg.content
+                        if hasattr(last_msg, 'content'):                            
+                            json_result = parse_json_answer(last_msg.content)
+                            answer = json_result.get("answer") if json_result else None                            
                         else:
                             logger.warning(f"Last message in agent response has no 'content' attribute: {last_msg}")
                     else:

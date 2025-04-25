@@ -1,5 +1,7 @@
+# /home/bk_anupam/code/LLM_agents/RAG_BOT/rag_agent.py
 import datetime
 import functools
+import json # Import json module
 from typing import List, TypedDict, Optional, Annotated, Literal
 from operator import itemgetter
 from langchain_chroma import Chroma
@@ -18,6 +20,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 import os
 import sys
+import re
 
 # Add the project root to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -29,7 +32,7 @@ from RAG_BOT.context_retriever_tool import create_context_retriever_tool
 # --- Helper Prompts ---
 EVALUATE_CONTEXT_PROMPT = ChatPromptTemplate.from_messages(
     [
-        ("system", Config.EVALUATE_CONTEXT_PROMPT),
+        ("system", Config.get_evaluate_context_prompt()),
         (
             "human",
             "Original User Question: {original_query}\n\nRetrieved Context:\n{context}"
@@ -39,18 +42,20 @@ EVALUATE_CONTEXT_PROMPT = ChatPromptTemplate.from_messages(
 
 REFRAME_QUESTION_PROMPT = ChatPromptTemplate.from_messages(
     [
-        ("system", Config.REFRAME_QUESTION_PROMPT),
+        ("system", Config.get_reframe_question_prompt()),
         (
-            "human", 
+            "human",
             "Original User Question: {original_query}\nQuery Used for Failed Retrieval: {failed_query}"
         ),
     ]
 )
 
+# LangChain will expect 'system_base', 'context', and 'original_query' during invoke
 FINAL_ANSWER_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", Config.SYSTEM_PROMPT + "\n\nUse the following retrieved context to answer the question:\nContext:\n{context}"),
-        ("human", "{original_query}"),
+    [   # Pass raw template string
+        ("system", Config.get_final_answer_system_prompt_template()), 
+        # Pass raw template string ({original_query})
+        ("human", Config.get_final_answer_human_prompt_template()),   
     ]
 )
 
@@ -69,6 +74,7 @@ class AgentState(TypedDict):
 def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_tools: ChatGoogleGenerativeAI):
     """
     Handles initial query, decides first action, and generates final response.
+    Now ensures final response adheres to JSON format defined in FINAL_ANSWER_PROMPT.
     """
     logger.info("--- Executing Agent Node ---")
     messages = state['messages']
@@ -79,7 +85,7 @@ def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_tools: C
         logger.info("Handling initial user query: " + last_message.content)
         original_query_content = last_message.content
         # Decide whether to retrieve context or answer directly (usually retrieve)
-        system_prompt_msg = SystemMessage(content=Config.SYSTEM_PROMPT)
+        system_prompt_msg = SystemMessage(content=Config.get_system_prompt())
         # Use LLM with tools to decide if tool call is needed
         response = llm_with_tools.invoke([system_prompt_msg] + messages)
         logger.info("LLM invoked for initial decision.")
@@ -93,60 +99,72 @@ def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_tools: C
             "context": None # Reset context
         }
 
-    # 2. Generate Final Answer or "Cannot Find" Message
-    # This part is reached after evaluation (either sufficient or failed retry)
+    # 2. Generate Final Answer or "Cannot Find" Message (in JSON format)
     else:
         logger.info("Generating final response.")
-        # Check if the last message is the direct answer from agent_initial
-        if isinstance(last_message, AIMessage) and not last_message.tool_calls and not state.get('evaluation_result'):
-            logger.info("Passing through direct answer from initial agent call.")
-            return {"messages": [last_message]} # Return the direct answer
         evaluation = state.get('evaluation_result')
         original_query = state.get('original_query')
-        context = state.get('context')
+        context = state.get('context') # Context should be populated by evaluate_context_node
 
-        if evaluation == 'sufficient' and context is not None:
-            logger.info("Context sufficient. Generating final answer.")
+        # --- Removed direct pass-through logic ---
+        # We now always generate the final answer using the FINAL_ANSWER_PROMPT
+        # or generate the "cannot find" message in JSON format.
+
+        # If context was sufficient OR if the initial decision was to answer directly
+        # (which also routes here via tools_condition -> agent_final_answer)
+        # and we have an original query.
+        # Note: Context might be None if answering directly without retrieval.
+        if evaluation == 'sufficient' or (evaluation is None and not state.get('retry_attempted')):
+            logger.info("Context sufficient or answering directly. Generating final answer using FINAL_ANSWER_PROMPT.")
             # Use base LLM without tools for response generation
-            final_answer_chain = FINAL_ANSWER_PROMPT | llm 
+            final_answer_chain = FINAL_ANSWER_PROMPT | llm
+            # Provide empty context if none was retrieved (direct answer case)
             final_answer = final_answer_chain.invoke({
+                "system_base": Config.get_system_prompt(), # Provide system_base here
                 "original_query": original_query,
-                "context": context
+                "context": context if context else "N/A" # Provide N/A if no context
             })
+            # Ensure the output is AIMessage
             if not isinstance(final_answer, AIMessage):
-                 final_answer = AIMessage(content=str(final_answer.content), 
+                 final_answer = AIMessage(content=str(final_answer.content),
                                           response_metadata=getattr(final_answer, 'response_metadata', {}))
             return {"messages": [final_answer]}
-        else: # Evaluation was insufficient after retry, or some other edge case
-            logger.info("Context insufficient after retry or error. Generating 'cannot find' message.")
-            cannot_find_message = AIMessage(
-                content="Relevant information cannot be found in the database to answer the question. " \
-                "Please try reframing your question."
-            )
+        else: # Evaluation was insufficient after retry, or some other error state
+            logger.info("Context insufficient after retry or error. Generating 'cannot find' message in JSON format.")
+            # Format the "cannot find" message as JSON
+            cannot_find_content = {
+                "answer": "Relevant information cannot be found in the database to answer the question. Please try reframing your question."
+            }
+            # Wrap in markdown code block as per the prompt's example output
+            cannot_find_json_string = f"```json\n{json.dumps(cannot_find_content, indent=2)}\n```"
+            cannot_find_message = AIMessage(content=cannot_find_json_string)
             return {"messages": [cannot_find_message]}
 
 
 def evaluate_context_node(state: AgentState, llm: ChatGoogleGenerativeAI):
     """
     Evaluates the retrieved context based on the original query.
+    Stores context in state.
     """
     logger.info("--- Executing Evaluate Context Node ---")
-    original_query = state['original_query']    
+    original_query = state['original_query']
     messages = state['messages']
     last_message = messages[-1]
 
-    # Ensure context was actually retrieved
+    # Ensure context was actually retrieved via ToolMessage
     if not isinstance(last_message, ToolMessage) or last_message.name != 'retrieve_context':
          logger.warning("Evaluate node reached without valid preceding ToolMessage. Skipping evaluation.")
-         # Potentially route to an error state or back to agent
-         return {"evaluation_result": "insufficient"} # Treat as insufficient
+         # Treat as insufficient, store None for context
+         return {"evaluation_result": "insufficient", "context": None}
 
     retrieved_context = last_message.content
-    state['context'] = retrieved_context # Store context explicitly in state
+    # Store context explicitly in state *before* evaluation
+    state['context'] = retrieved_context
 
     if not original_query or not retrieved_context or retrieved_context.startswith("Error:"):
-        logger.warning("Missing original query or context for evaluation.")
-        return {"evaluation_result": "insufficient", "context": retrieved_context}
+        logger.warning("Missing original query or valid context for evaluation.")
+        # Context is already stored, just return insufficient
+        return {"evaluation_result": "insufficient"}
 
     logger.info("Evaluating retrieved context...")
     eval_chain = EVALUATE_CONTEXT_PROMPT | llm
@@ -158,6 +176,7 @@ def evaluate_context_node(state: AgentState, llm: ChatGoogleGenerativeAI):
     logger.info(f"Context evaluation result: {evaluation_result_str}")
     evaluation = "sufficient" if evaluation_result_str == "YES" else "insufficient"
 
+    # Context is already in state from above
     return {"evaluation_result": evaluation, "context": retrieved_context}
 
 
@@ -168,7 +187,7 @@ def reframe_query_node(state: AgentState, llm: ChatGoogleGenerativeAI):
     logger.info("--- Executing Reframe Query Node ---")
     original_query = state['original_query']
     # The query used in the failed attempt
-    failed_query = state['current_query'] 
+    failed_query = state['current_query']
 
     if not original_query or not failed_query:
         logger.error("Missing original or current query for reframing.")
@@ -201,7 +220,8 @@ def reframe_query_node(state: AgentState, llm: ChatGoogleGenerativeAI):
         "messages": [retry_tool_call_message], # Add this message to the state
         "current_query": reframed_question,
         "retry_attempted": True,
-        "evaluation_result": None # Reset evaluation for the next attempt
+        "evaluation_result": None, # Reset evaluation for the next attempt
+        "context": None # Clear context before retry
     }
 
 # --- Conditional Edge Logic ---
@@ -227,24 +247,11 @@ def decide_next_step(state: AgentState) -> Literal["reframe_query", "agent_final
         return "agent_final_answer" # Route to agent node for "cannot find" message
 
 
-# Initial decision: retrieve or end?
-# We need a condition to check if the agent_initial decided to call the tool
-def should_retrieve(state: AgentState) -> Literal["retrieve_context", "__end__"]:
-    messages = state['messages']
-    last_message = messages[-1]
-    if isinstance(last_message, AIMessage) and last_message.tool_calls:
-        # Check if the tool call is for our retriever
-        if any(tc['name'] == 'retrieve_context' for tc in last_message.tool_calls):
-                logger.info("Agent decided to retrieve context.")
-                return "retrieve_context"
-    logger.info("Agent decided to answer directly or error occurred.")
-    return "__end__" # If no tool call, end (or go to final answer directly)
-    
-
 # --- Graph Builder ---
 def build_agent(vectordb: Chroma, model_name: str = Config.LLM_MODEL_NAME) -> StateGraph:
-    """Builds the multi-node LangGraph agent."""    
+    """Builds the multi-node LangGraph agent."""
     llm = ChatGoogleGenerativeAI(model=model_name, temperature=Config.TEMPERATURE)
+    logger.info(f"LLM model '{model_name}' initialized with temperature {Config.TEMPERATURE}.")
     # Tool Preparation
     ctx_retriever_tool_instance = create_context_retriever_tool(
         vectordb=vectordb,
@@ -257,12 +264,8 @@ def build_agent(vectordb: Chroma, model_name: str = Config.LLM_MODEL_NAME) -> St
     llm_with_tools = llm.bind_tools(available_tools)
     logger.info("LLM bound with tools successfully.")
     # Create ToolNode specifically for context retrieval
-    # It needs to get its input ('current_query') from the state
-    retrieve_context_node = ToolNode(
-        tools=[ctx_retriever_tool_instance],
-        # Use the wrapper to extract input from state
-        # tool_input=get_retriever_tool_input
-    )
+    retrieve_context_node = ToolNode(tools=[ctx_retriever_tool_instance])
+
     # Bind LLM to nodes where needed
     agent_node_runnable = functools.partial(agent_node, llm=llm, llm_with_tools=llm_with_tools)
     evaluate_context_node_runnable = functools.partial(evaluate_context_node, llm=llm)
@@ -270,30 +273,24 @@ def build_agent(vectordb: Chroma, model_name: str = Config.LLM_MODEL_NAME) -> St
     # Define the graph
     builder = StateGraph(AgentState)
     # Add nodes
-    # Handles initial query & first decision
-    builder.add_node("agent_initial", agent_node_runnable) 
+    builder.add_node("agent_initial", agent_node_runnable) # Handles initial query & first decision
     builder.add_node("retrieve_context", retrieve_context_node)
     builder.add_node("evaluate_context", evaluate_context_node_runnable)
     builder.add_node("reframe_query", reframe_query_node_runnable)
-    # Add a separate node name for the agent when generating the final answer
-    # This avoids ambiguity in conditional routing if agent_node handled both start and end
+    # Use a distinct node name for final answer generation step
     builder.add_node("agent_final_answer", agent_node_runnable)
     # Define edges
-    builder.set_entry_point("agent_initial")    
-    # Decide if we should retrieve context or end
-    # builder.add_conditional_edges("agent_initial", should_retrieve)
-    # Decide whether to retrieve
+    builder.set_entry_point("agent_initial")
+    # Decide whether to retrieve or answer directly
     builder.add_conditional_edges(
         "agent_initial",
-        # Assess agent decision
-        tools_condition,
+        tools_condition, # Checks if the AIMessage from agent_initial has tool_calls
         {
-            # Translate the condition outputs to nodes in our graph
-            "tools": "retrieve_context",
-            "__end__": "agent_final_answer", # Directly to final answer generation
+            "tools": "retrieve_context", # If tool call exists, go retrieve
+            "__end__": "agent_final_answer", # If no tool call, go directly to final answer generation
         },
     )
-    # Main loop
+    # Main RAG loop
     builder.add_edge("retrieve_context", "evaluate_context")
     builder.add_conditional_edges(
         "evaluate_context",
@@ -301,7 +298,6 @@ def build_agent(vectordb: Chroma, model_name: str = Config.LLM_MODEL_NAME) -> St
         {
             "reframe_query": "reframe_query",
             "agent_final_answer": "agent_final_answer", # Route to final answer generation
-            # "__end__": END # Should not happen if decide_next_step is correct
         }
     )
     # Loop back to retrieve after reframing
@@ -321,7 +317,7 @@ def build_agent(vectordb: Chroma, model_name: str = Config.LLM_MODEL_NAME) -> St
 
 
 # --- Example Invocation ---
-if __name__ == '__main__':    
+if __name__ == '__main__':
     try:
         persist_directory = Config.VECTOR_STORE_PATH
         embeddings = HuggingFaceEmbeddings(model_name=Config.EMBEDDING_MODEL_NAME)
@@ -330,10 +326,11 @@ if __name__ == '__main__':
 
         app = build_agent(vectordb_instance)
 
-        # Example run
-        user_question = "Can you summarize the murli from 1970-01-18"
+        # Example run - User query no longer needs JSON instruction
+        # user_question = "Can you summarize the murli from 1950-01-18?"
+        user_question = "Can you summarize the murli of 1969-02-06"
 
-        # Initialize state correctly for the new structure
+        # Initialize state correctly
         initial_state = AgentState(
             messages=[HumanMessage(content=user_question)],
             original_query=None,
@@ -345,27 +342,46 @@ if __name__ == '__main__':
 
         print(f"\n--- Invoking Agent for query: '{user_question}' ---")
         print("\n--- Invoking Agent (using invoke) ---")
-        # Use invoke to get the final state directly, avoiding stream issues
+        # Use invoke to get the final state directly
         final_state_result = app.invoke(initial_state, {"recursion_limit": 15})
         print("\n--- Agent Invocation Complete ---")
 
-        # The rest of the final state processing logic remains the same
-        if final_state_result:
-            if isinstance(final_state_result, dict) and 'messages' in final_state_result:
-                print("\n--- Final State Messages ---")
-                for m in final_state_result['messages']:
-                    m.pretty_print()
+        # Process final state
+        if isinstance(final_state_result, dict) and 'messages' in final_state_result:
+            print("\n--- Final State ---")
+            print(f"Original Query: {final_state_result.get('original_query')}")
+            print(f"Current Query: {final_state_result.get('current_query')}")
+            print(f"Retry Attempted: {final_state_result.get('retry_attempted')}")
+            print(f"Evaluation Result: {final_state_result.get('evaluation_result')}")
+            print(f"Context Present: {bool(final_state_result.get('context'))}")
 
-                final_answer_message = final_state_result['messages'][-1]
-                if isinstance(final_answer_message, AIMessage):
-                    print("\nFinal Answer:", final_answer_message.content)
-                else:
-                    print("\nFinal message was not an AIMessage:", final_answer_message)
+            print("\n--- Final State Messages ---")
+            for m in final_state_result['messages']:
+                m.pretty_print()
+
+            final_answer_message = final_state_result['messages'][-1]
+            if isinstance(final_answer_message, AIMessage):
+                print("\nFinal Answer Content:")
+                print(final_answer_message.content)
+                # Try to parse JSON for verification
+                try:
+                    # Handle potential markdown code blocks
+                    content_str = final_answer_message.content.strip()
+                    if content_str.startswith("```json"):
+                         content_str = re.sub(r"^```json\s*([\s\S]*?)\s*```$", r"\1", content_str, flags=re.MULTILINE)
+                    parsed_json = json.loads(content_str)
+                    print("\nParsed JSON Answer:", parsed_json.get("answer"))
+                except json.JSONDecodeError:
+                    print("\nWarning: Final answer content is not valid JSON.")
+                except Exception as e:
+                    print(f"\nWarning: Error processing final answer content: {e}")
+
             else:
-                 print("\nError: Could not extract final messages from result:", final_state_result)
+                print("\nFinal message was not an AIMessage:", final_answer_message)
         else:
-            print("\nError: Could not determine final state from stream.")
+             print("\nError: Could not extract final messages from result:", final_state_result)
 
     except Exception as e:
         logger.error(f"Error during example run: {e}", exc_info=True)
         print(f"\nError during example run: {e}")
+
