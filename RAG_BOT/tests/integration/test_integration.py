@@ -179,11 +179,9 @@ class TestIntegration(unittest.TestCase):
         self.assertGreater(len(messages), 1)
 
         # --- Behavioral Assertions ---
-        # 1. Check if retry was attempted (assuming the first retrieval yields nothing relevant)
-        # Note: Retry might not happen if the initial retrieval finds *something*, even if irrelevant.
-        # The key is the final evaluation and message.
-        # self.assertTrue(final_state.get("retry_attempted"),
-        #                 "Agent state should indicate retry_attempted was True if initial retrieval failed")
+        # 1. Check if retry was attempted (assuming the first retrieval yields nothing relevant)        
+        self.assertTrue(final_state.get("retry_attempted"),
+                         "Agent state should indicate retry_attempted was True if initial retrieval failed")
 
         # 2. Check that the tool was called (at least once)
         tool_call_count = sum(
@@ -204,9 +202,7 @@ class TestIntegration(unittest.TestCase):
             f"Agent did not return a 'cannot find' message within the JSON answer: {json_result['answer']}"
         )
 
-        # 4. Check state reflects insufficient evaluation (if retry occurred) or final decision path
-        # If retry happened, evaluation should be insufficient. If not, it might be None but led to final answer.
-        # The crucial part is the final message content checked above.
+        # 4. Check state reflects insufficient evaluation (if retry occurred) or final decision path        
         if final_state.get("retry_attempted"):
             self.assertEqual(final_state.get("evaluation_result"), "insufficient",
                              "Agent state should indicate evaluation_result was insufficient after retry")
@@ -227,11 +223,8 @@ class TestIntegration(unittest.TestCase):
             any(tc.get("name") == "retrieve_context" for tc in msg.tool_calls)
         ]
         self.assertGreaterEqual(len(tool_calls), 1, "No tool call was made during retry logic.")
-
-        # Check state reflects retry attempt (assuming initial retrieval failed/insufficient)
-        # This depends on the test data; if 1970-01-18 *is* present, retry might not happen.
-        # The key check is the final JSON output below.
-        # self.assertTrue(final_state.get("retry_attempted"), "Agent state should indicate retry_attempted was True")
+        # Check that the retry logic was invoked        
+        self.assertTrue(final_state.get("retry_attempted"), "Agent state should indicate retry_attempted was True")
 
         # Check the final answer format (should be JSON, likely a 'cannot find' message)
         final_answer_message = messages[-1]
@@ -263,7 +256,8 @@ class TestIntegration(unittest.TestCase):
         final_answer_content = final_state["messages"][-1].content
         evaluation_result = self.evaluate_response_with_llm(query, context, final_answer_content)
         json_result = utils.parse_json_answer(final_answer_content)
-        self.assertTrue(evaluation_result, f"LLM Judge evaluation failed for query '{query}'. Response: {json_result}")
+        response_answer = json_result.get("answer", "")
+        self.assertTrue(evaluation_result, f"LLM Judge evaluation failed for query '{query}'. Response: {response_answer}")
 
 
 if __name__ == "__main__":
