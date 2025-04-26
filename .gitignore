@@ -4,3 +4,4 @@ RAG_BOT/chroma_db/*
 *.env
 RAG_BOT/tests/test_vector_store/*
 RAG_BOT/tests/data/*
+settings.json
