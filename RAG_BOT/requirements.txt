@@ -13,3 +13,5 @@ requests
 langchain-chroma
 langchain-huggingface
 pyTelegramBotAPI
+langgraph
+PyYAML
