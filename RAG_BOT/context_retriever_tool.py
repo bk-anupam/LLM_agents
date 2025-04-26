@@ -1,8 +1,15 @@
 import datetime
+import datetime
 from langchain_core.tools import tool
 from langchain_chroma import Chroma
+from typing import Optional, Dict, Any, Callable, List, Tuple 
+import os
+import sys
+# Add the project root to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
 from RAG_BOT.logger import logger
-from typing import Optional, Dict, Any, Callable
+
 
 # Factory function to create the tool with the vectordb instance enclosed
 def create_context_retriever_tool(vectordb: Chroma, k: int = 25, search_type: str = "similarity") -> Callable:
@@ -19,32 +26,29 @@ def create_context_retriever_tool(vectordb: Chroma, k: int = 25, search_type: st
         A callable tool function suitable for LangChain/LangGraph.
     """
 
-    @tool
+    @tool(response_format="content_and_artifact")
     def retrieve_context(
-        query: str,        
-        date_filter: Optional[str] = None,        
-    ) -> str:
+        query: str,
+        date_filter: Optional[str] = None,
+    ) -> Tuple[str, List[str]]: 
         """
-        Retrieves relevant context snippets from Brahmakumaris murlis stored in a Chroma vector database based on the user query.
+        Retrieves relevant context snippets (as a list of strings) from Brahmakumaris murlis stored in a Chroma vector database based on the user query.
         This tool accesses the vectordb instance provided during its creation.
 
         Args:
             query: The user's query string.            
-            date_filter: An optional date string in 'YYYY-MM-DD' format to filter documents by date.            
+            date_filter: An optional date string in 'YYYY-MM-DD' format to filter documents by date.
 
         Returns:
-            A string containing the concatenated page content of the retrieved documents,
-            separated by double newlines. Returns an empty string if no documents are found
-            or if an error occurs.
+            A list of strings, where each string is the page content of a retrieved document.
+            Returns an empty list if no documents are found or if an error occurs.
         """
         logger.info(f"Executing context_retriever_tool for query: {query}")
         try:
             # Normalize query
             normalized_query = query.strip().lower()
-
             # Prepare search kwargs
             search_kwargs: Dict[str, Any] = {"k": k}
-
             if date_filter:
                 try:
                     filter_date = datetime.datetime.strptime(date_filter, '%Y-%m-%d')
@@ -65,16 +69,22 @@ def create_context_retriever_tool(vectordb: Chroma, k: int = 25, search_type: st
 
             # Retrieve documents
             retrieved_docs = retriever.invoke(normalized_query)
+            # Return list of document contents
+            doc_contents = [doc.page_content for doc in retrieved_docs]
+            # *** KEY CHANGE 3: Return a tuple (content_string, artifact_list) ***            
+            content_string = f"Successfully retrieved {len(retrieved_docs)} documents based on the query."
+            if not doc_contents:                
+                logger.info("No documents found matching the query.")
+            else:
+                logger.info(f"content_string: {content_string} \n Artifact type: {type(doc_contents)}")
+                logger.info(f"First retrieved doc content snippet: {doc_contents[0][:200]}...")
 
-            # Format context
-            context = "\n\n".join([doc.page_content for doc in retrieved_docs])
-            logger.info(f"Retrieved {len(retrieved_docs)} documents using context_retriever_tool.")
-            logger.info(f"Context retrieved: {context[:200]}...")  
-            return context
+            return content_string, doc_contents 
+
 
         except Exception as e:
             logger.error(f"Error during context retrieval: {e}", exc_info=True)
-            return "Error: Could not retrieve context due to an internal issue."
+            return [] # Return empty list on error
 
     # Return the decorated inner function
     return retrieve_context
@@ -103,10 +113,15 @@ if __name__ == '__main__':
         # The tool now only expects arguments defined in its signature (query, date_filter)
         # k and search_type are now part of the tool's internal configuration via the factory
         tool_input = {"query": test_query} # Removed k from here
-        context_result = murli_tool_instance.invoke(tool_input)
+        context_result_list = murli_tool_instance.invoke(tool_input)
 
         print(f"Query: {test_query}")
-        print(f"Retrieved Context (using k={Config.K}, search_type='{Config.SEARCH_TYPE}'):\n{context_result}")
+        print(f"Retrieved {len(context_result_list)} Context Documents (using k={Config.K}, search_type='{Config.SEARCH_TYPE}'):")
+        if context_result_list:
+            print("First document content:")
+            print(context_result_list[0][:500] + "...") # Print snippet of first doc
+        else:
+            print("No documents retrieved.")
         print("\nFactory function defined. Tool created and tested.")
 
     except Exception as e:

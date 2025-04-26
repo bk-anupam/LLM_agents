@@ -1,7 +1,7 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/rag_agent.py
 import datetime
 import functools
-import json # Import json module
+import json 
 from typing import List, TypedDict, Optional, Annotated, Literal
 from operator import itemgetter
 from langchain_chroma import Chroma
@@ -18,6 +18,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
+from sentence_transformers import CrossEncoder # Added for reranking
 import os
 import sys
 import re
@@ -25,6 +26,7 @@ import re
 # Add the project root to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
+
 from RAG_BOT.config import Config
 from RAG_BOT.logger import logger
 from RAG_BOT.context_retriever_tool import create_context_retriever_tool
@@ -68,6 +70,9 @@ class AgentState(TypedDict):
     retry_attempted: bool
     # Evaluation result: 'sufficient', 'insufficient', or None
     evaluation_result: Optional[Literal['sufficient', 'insufficient']]
+    # Store the raw retrieved docs before reranking (optional, for debugging/analysis)
+    raw_retrieved_docs: Optional[List[str]]
+
 
 # --- Node Functions ---
 
@@ -141,43 +146,121 @@ def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_tools: C
             return {"messages": [cannot_find_message]}
 
 
+def rerank_context_node(state: AgentState, reranker_model: CrossEncoder):
+    """
+    Reranks the initially retrieved documents based on the current query.
+    Updates the state with the final, concatenated context string.
+    """
+    logger.info("--- Executing Rerank Context Node ---")
+    current_query = state.get('current_query')
+    logger.info(f"Current query for reranking: '{current_query}'")
+    messages = state.get('messages')
+    last_message = messages[-1] if messages else None
+    logger.info(f"Last message type: {type(last_message)}")
+    # retrieved_docs = last_message.content 
+    # logger.info(f"Retrieved docs type: {type(retrieved_docs)}")
+    # logger.info(f"isinstance(retrieved_docs, list): {isinstance(retrieved_docs, list)}")
+    # logger.info(f"Last message content: {last_message.content if last_message else 'None'}")
+
+    retrieved_docs_artifact = None
+    # *** KEY CHANGE: Access the artifact from the last message ***
+    if isinstance(last_message, ToolMessage) and hasattr(last_message, 'artifact'):
+        # Optional: Check if it's the correct tool message
+        if last_message.name == 'retrieve_context':
+            retrieved_docs_artifact = last_message.artifact
+            logger.info(f"Artifact received from tool '{last_message.name}': type {type(retrieved_docs_artifact)}")
+        else:
+            logger.error(f"Last message is a ToolMessage, but not from 'retrieve_context' (name: {last_message.name}). Skipping reranking.")
+            # Skip reranking if not from the correct tool
+            return {"context": None} 
+    else:
+        logger.warning(f"Last message is not a ToolMessage with an artifact (type: {type(last_message)}). Skipping reranking.")    
+        return {"context": None}
+
+    # Proceed only if we got a valid list artifact
+    if not isinstance(retrieved_docs_artifact, list):
+        logger.error("No valid document list artifact found to rerank.")        
+        # Set context to empty or None depending on desired downstream handling
+        return {"context": ""} # Or {"context": None}        
+
+    # Validate reranker and input
+    if reranker_model is None:
+        logger.error("Reranker model not loaded. Concatenating original artifact docs.")
+        final_context = "\n\n".join(retrieved_docs_artifact)
+        return {"context": final_context}    
+    
+    if not retrieved_docs_artifact:
+        logger.info("No documents in artifact to rerank.")
+        return {"context": ""}
+
+    logger.info(f"Reranking {len(retrieved_docs_artifact)} documents for query: '{current_query}'")
+    # Prepare pairs for the cross-encoder
+    pairs = [[current_query, doc] for doc in retrieved_docs_artifact]
+    try:
+        # Get scores from the cross-encoder
+        scores = reranker_model.predict(pairs)
+        logger.info(f"Reranking scores obtained (Top {Config.RERANK_TOP_N}): {scores[:Config.RERANK_TOP_N]}")
+        # Combine docs with scores and sort
+        scored_docs = list(zip(scores, retrieved_docs_artifact))
+        scored_docs.sort(key=itemgetter(0), reverse=True)
+        # Select top N documents based on config        
+        reranked_docs = [doc for score, doc in scored_docs[:Config.RERANK_TOP_N]]
+        logger.info(f"Selected top {len(reranked_docs)} documents after reranking.")
+        # Concatenate the final context
+        final_context = "\n\n".join(reranked_docs)
+        logger.info(f"Final reranked context snippet: {final_context[:400]}...")
+        # Update state with the final context
+        # Optionally store raw docs too: "raw_retrieved_docs": retrieved_docs
+        return {"context": final_context}
+    except Exception as e:
+        logger.error(f"Error during reranking: {e}. Using original context without reranking", exc_info=True)
+        # Fallback: use the original concatenated context
+        final_context = "\n\n".join(retrieved_docs_artifact)
+        return {"context": final_context}
+
+
 def evaluate_context_node(state: AgentState, llm: ChatGoogleGenerativeAI):
     """
-    Evaluates the retrieved context based on the original query.
-    Stores context in state.
+    Evaluates the reranked context (read from state) based on the original query.
     """
     logger.info("--- Executing Evaluate Context Node ---")
-    original_query = state['original_query']
-    messages = state['messages']
-    last_message = messages[-1]
+    original_query = state.get('original_query')
+    # Context is now expected to be populated by the rerank_context_node
+    context_to_evaluate = state.get('context')
 
-    # Ensure context was actually retrieved via ToolMessage
-    if not isinstance(last_message, ToolMessage) or last_message.name != 'retrieve_context':
-         logger.warning("Evaluate node reached without valid preceding ToolMessage. Skipping evaluation.")
-         # Treat as insufficient, store None for context
-         return {"evaluation_result": "insufficient", "context": None}
+    # Check if context exists in the state
+    if context_to_evaluate is None: # Check for None explicitly
+         logger.warning("Evaluate context node reached but no context found in state (potentially due to retrieval/reranking failure). Treating as insufficient.")
+         return {"evaluation_result": "insufficient"} # Context remains None
 
-    retrieved_context = last_message.content
-    # Store context explicitly in state *before* evaluation
-    state['context'] = retrieved_context
-
-    if not original_query or not retrieved_context or retrieved_context.startswith("Error:"):
-        logger.warning("Missing original query or valid context for evaluation.")
+    if not original_query:
+        logger.warning("Missing original query for evaluation.")
         # Context is already stored, just return insufficient
         return {"evaluation_result": "insufficient"}
 
-    logger.info("Evaluating retrieved context...")
+    # Handle empty string context (e.g., if reranker returned no docs)
+    if not context_to_evaluate:
+        logger.info("Context in state is empty. Treating as insufficient.")
+        return {"evaluation_result": "insufficient"}
+
+    # Check for error messages passed as context (though reranker should return None on error)
+    if isinstance(context_to_evaluate, str) and context_to_evaluate.startswith("Error:"):
+        logger.warning(f"Context contains an error message: {context_to_evaluate}. Treating as insufficient.")
+        return {"evaluation_result": "insufficient"}
+
+
+    logger.info("Evaluating context from state...")
     eval_chain = EVALUATE_CONTEXT_PROMPT | llm
     evaluation_result_str = eval_chain.invoke({
         "original_query": original_query,
-        "context": retrieved_context
+        "context": context_to_evaluate # Use context from state
     }).content.strip().upper()
 
     logger.info(f"Context evaluation result: {evaluation_result_str}")
     evaluation = "sufficient" if evaluation_result_str == "YES" else "insufficient"
 
-    # Context is already in state from above
-    return {"evaluation_result": evaluation, "context": retrieved_context}
+    # Context is already in state, just return the evaluation result
+    return {"evaluation_result": evaluation}
 
 
 def reframe_query_node(state: AgentState, llm: ChatGoogleGenerativeAI):
@@ -252,36 +335,57 @@ def build_agent(vectordb: Chroma, model_name: str = Config.LLM_MODEL_NAME) -> St
     """Builds the multi-node LangGraph agent."""
     llm = ChatGoogleGenerativeAI(model=model_name, temperature=Config.TEMPERATURE)
     logger.info(f"LLM model '{model_name}' initialized with temperature {Config.TEMPERATURE}.")
-    # Tool Preparation
+
+    # --- Reranker Model Initialization ---
+    reranker_model = None # Initialize as None
+    try:
+        reranker_model_name = Config.RERANKER_MODEL_NAME
+        logger.info(f"Loading reranker model: {reranker_model_name}")
+        reranker_model = CrossEncoder(reranker_model_name)
+        logger.info("Reranker model loaded successfully.")
+    except Exception as e:
+        logger.error(f"Failed to load reranker model '{Config.RERANKER_MODEL_NAME}': {e}", exc_info=True)
+        # The graph will proceed, but rerank_context_node will skip reranking
+
+    # --- Tool Preparation ---
+    # Use INITIAL_RETRIEVAL_K for the retriever tool that feeds the reranker
     ctx_retriever_tool_instance = create_context_retriever_tool(
         vectordb=vectordb,
-        k=Config.K,
+        k=Config.INITIAL_RETRIEVAL_K, # Use the larger K for initial retrieval
         search_type=Config.SEARCH_TYPE
     )
-    logger.info(f"Context retriever tool created with k={Config.K}, search_type='{Config.SEARCH_TYPE}'.")
+    logger.info(f"Context retriever tool created with k={Config.INITIAL_RETRIEVAL_K}, search_type='{Config.SEARCH_TYPE}'.")
     available_tools = [ctx_retriever_tool_instance]
-    # LLM Binding (for initial decision in agent_node)
+
+    # --- LLM Binding (for initial decision in agent_node) ---
     llm_with_tools = llm.bind_tools(available_tools)
     logger.info("LLM bound with tools successfully.")
     # Create ToolNode specifically for context retrieval
     retrieve_context_node = ToolNode(tools=[ctx_retriever_tool_instance])
 
-    # Bind LLM to nodes where needed
+    # --- Bind LLM and Reranker to Nodes ---
     agent_node_runnable = functools.partial(agent_node, llm=llm, llm_with_tools=llm_with_tools)
+    # Bind the loaded reranker model (or None if loading failed)
+    rerank_context_node_runnable = functools.partial(rerank_context_node, reranker_model=reranker_model)
     evaluate_context_node_runnable = functools.partial(evaluate_context_node, llm=llm)
     reframe_query_node_runnable = functools.partial(reframe_query_node, llm=llm)
-    # Define the graph
+
+    # --- Define the Graph ---
     builder = StateGraph(AgentState)
-    # Add nodes
+
+    # --- Add Nodes ---
     builder.add_node("agent_initial", agent_node_runnable) # Handles initial query & first decision
     builder.add_node("retrieve_context", retrieve_context_node)
+    builder.add_node("rerank_context", rerank_context_node_runnable) # Add the new reranker node
     builder.add_node("evaluate_context", evaluate_context_node_runnable)
     builder.add_node("reframe_query", reframe_query_node_runnable)
     # Use a distinct node name for final answer generation step
-    builder.add_node("agent_final_answer", agent_node_runnable)
-    # Define edges
+    builder.add_node("agent_final_answer", agent_node_runnable) 
+
+    # --- Define Edges ---
     builder.set_entry_point("agent_initial")
-    # Decide whether to retrieve or answer directly
+
+    # Decide whether to retrieve or answer directly from the start
     builder.add_conditional_edges(
         "agent_initial",
         tools_condition, # Checks if the AIMessage from agent_initial has tool_calls
@@ -290,11 +394,15 @@ def build_agent(vectordb: Chroma, model_name: str = Config.LLM_MODEL_NAME) -> St
             "__end__": "agent_final_answer", # If no tool call, go directly to final answer generation
         },
     )
-    # Main RAG loop
-    builder.add_edge("retrieve_context", "evaluate_context")
+
+    # --- Main RAG loop with Reranking ---
+    builder.add_edge("retrieve_context", "rerank_context") # Retrieve -> Rerank
+    builder.add_edge("rerank_context", "evaluate_context") # Rerank -> Evaluate
+
+    # Conditional logic after evaluation remains the same
     builder.add_conditional_edges(
         "evaluate_context",
-        decide_next_step, # Use the dedicated decision function
+        decide_next_step, # Use the dedicated decision function based on evaluation of reranked context
         {
             "reframe_query": "reframe_query",
             "agent_final_answer": "agent_final_answer", # Route to final answer generation
@@ -384,4 +492,3 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"Error during example run: {e}", exc_info=True)
         print(f"\nError during example run: {e}")
-

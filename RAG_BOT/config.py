@@ -49,9 +49,13 @@ class Config:
     # LLM_MODEL_NAME = "gemini-2.5-pro-exp-03-25"
     JUDGE_LLM_MODEL_NAME = "gemini-2.0-flash"
     EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
-    K = 10
+    K = 10 # Initial retrieval K for non-reranking flow (can be kept or removed if INITIAL_RETRIEVAL_K is always used)
     SEARCH_TYPE = "similarity"
     SCORE_THRESHOLD = 0.5
+    # Reranking specific config
+    INITIAL_RETRIEVAL_K = 40 # Number of docs to fetch initially for reranking
+    RERANKER_MODEL_NAME = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
+    RERANK_TOP_N = 10 # Number of docs to keep after reranking
 
     # --- Accessor methods for prompts (optional but good practice) ---
     @classmethod
