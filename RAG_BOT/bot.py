@@ -14,9 +14,12 @@ sys.path.insert(0, project_root)
 from config import Config
 from RAG_BOT.logger import logger
 from vector_store import VectorStore
-from rag_agent import build_agent
+# Updated import for build_agent
+from RAG_BOT.agent.graph_builder import build_agent
 from langchain_core.messages import HumanMessage
 from message_handler import MessageHandler
+# AgentState might not be directly used here, but good practice if needed later
+# from RAG_BOT.agent.state import AgentState
 
 
 # Initialize Flask app
@@ -231,9 +234,7 @@ def handle_query(message: Message):
 
 
 # Initialize message handler (for non-command messages)
-# Consider if the RAG agent logic should be directly in the message handler
-# or if the VectorStore query method is sufficient for simple Q&A.
-# Assuming MessageHandler uses the agent for more complex interactions if needed.
+# Pass the agent instance to the handler
 handler = MessageHandler(agent=agent, config=config)
 
 
