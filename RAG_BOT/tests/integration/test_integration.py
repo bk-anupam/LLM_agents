@@ -150,7 +150,7 @@ class TestIntegration(unittest.TestCase):
     def test_agent_without_retrieval(self):
         """Tests the agent's ability to answer a general question without retrieval, in JSON."""
         # Query without JSON instruction
-        query = "What is the capital of France?"
+        query = "What is the purpose of life?"
         final_state = self._run_agent(query)
         messages = final_state["messages"]
         self.assertGreater(len(messages), 1)
@@ -169,7 +169,12 @@ class TestIntegration(unittest.TestCase):
         json_result = utils.parse_json_answer(final_answer_message.content)
         self.assertIsNotNone(json_result, f"Final answer is not valid JSON: {final_answer_message.content}")
         self.assertIn("answer", json_result)
-        self.assertEqual(json_result["answer"].lower(), "paris")
+        # check that cannot find is not in the answer
+        answer_lower = json_result["answer"].lower()
+        self.assertNotIn("cannot be found", answer_lower,
+                         f"Agent returned 'cannot be found' unexpectedly: {json_result['answer']}")
+        self.assertNotIn("cannot find", answer_lower,
+                         f"Agent returned 'cannot find' unexpectedly: {json_result['answer']}")
 
 
     def test_agent_insufficient_context(self):

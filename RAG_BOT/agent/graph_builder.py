@@ -18,7 +18,7 @@ from RAG_BOT.config import Config
 from RAG_BOT.logger import logger
 from RAG_BOT.context_retriever_tool import create_context_retriever_tool
 from RAG_BOT.agent.state import AgentState
-from RAG_BOT.agent.agent_node import agent_node
+from RAG_BOT.agent.agent_node import agent_node, FinalAnswerFormat
 from RAG_BOT.agent.retrieval_nodes import rerank_context_node
 from RAG_BOT.agent.evaluation_nodes import evaluate_context_node, reframe_query_node
 
@@ -51,7 +51,8 @@ def build_agent(vectordb: Chroma, model_name: str = Config.LLM_MODEL_NAME) -> St
     """Builds the multi-node LangGraph agent."""
     llm = ChatGoogleGenerativeAI(model=model_name, temperature=Config.TEMPERATURE)
     logger.info(f"LLM model '{model_name}' initialized with temperature {Config.TEMPERATURE}.")
-
+    llm_structured = llm.with_structured_output(FinalAnswerFormat)
+    logger.info("LLM bound with structured output (FinalAnswerFormat).")
     # --- Reranker Model Initialization ---
     reranker_model = None # Initialize as None
     try:
@@ -80,7 +81,11 @@ def build_agent(vectordb: Chroma, model_name: str = Config.LLM_MODEL_NAME) -> St
     retrieve_context_node = ToolNode(tools=[ctx_retriever_tool_instance])
 
     # --- Bind LLM and Reranker to Nodes ---
-    agent_node_runnable = functools.partial(agent_node, llm=llm, llm_with_tools=llm_with_tools)
+    agent_node_runnable = functools.partial(
+        agent_node, 
+        llm_structured=llm_structured, 
+        llm_with_tools=llm_with_tools
+    )
     # Bind the loaded reranker model (or None if loading failed)
     rerank_context_node_runnable = functools.partial(rerank_context_node, reranker_model=reranker_model)
     evaluate_context_node_runnable = functools.partial(evaluate_context_node, llm=llm)
