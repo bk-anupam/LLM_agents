@@ -59,7 +59,8 @@ final_answer_prompt_system: |
 final_answer_prompt_human: "{original_query}"
 
 judge_prompt_template: |
-  You are an impartial evaluator assessing the quality of an AI assistant's response to a user query about Brahmakumaris murlis, based on potentially retrieved context.
+  You are an impartial evaluator assessing the quality of an AI assistant's response to a user query about Brahmakumaris murlis, 
+  based on potentially retrieved context.
 
   **Original User Query:**
   {query}
@@ -73,7 +74,9 @@ judge_prompt_template: |
   **Evaluation Task:**
   Evaluate the AI Assistant's Response based ONLY on the following criteria:
   1.  **Relevance:** Is the response directly addressing the Original User Query?
-  2.  **Faithfulness:** If Retrieved Context is provided and relevant, does the response accurately reflect information ONLY from the context without adding outside information or hallucinating? If context is irrelevant or missing, assess if the response appropriately indicates inability to answer based on context.
+  2.  **Faithfulness:** If Retrieved Context is provided and relevant, does the response accurately reflect information ONLY 
+      from the context without adding outside information or hallucinating? If context is irrelevant or missing, assess if the 
+      response appropriately indicates inability to answer based on context.
   3.  **Format Adherence:** Did the response strictly follow the requested JSON format: {{"answer": "<answer text>"}}?
 
   **Output:**

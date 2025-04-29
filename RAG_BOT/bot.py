@@ -48,12 +48,14 @@ class TelegramBotApp:
 
             # Setup webhook route after initializing bot and config
             self._setup_webhook_route()
+            logger.info("Webhook route set up successfully")
 
             # Register message handlers after bot initialization
             self.bot.register_message_handler(self.send_welcome, commands=['start'])
             self.bot.register_message_handler(self.send_help, commands=['help'])
             self.bot.register_message_handler(self.handle_document, content_types=['document'])
             self.bot.register_message_handler(self.handle_all_messages, func=lambda message: True)
+            logger.info("Message handlers registered successfully")
 
         except Exception as e:
             logger.critical(f"Failed during application startup: {str(e)}", exc_info=True)

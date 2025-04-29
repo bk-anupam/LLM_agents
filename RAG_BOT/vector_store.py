@@ -305,36 +305,7 @@ class VectorStore:
 
         except Exception as e:
             logger.error(f"Error during query execution: {e}", exc_info=True)
-            return "Sorry, an error occurred while processing your query."
-
-
-    @staticmethod
-    def query_llm(query, model_name="gemini-2.0-flash"):
-        """Queries the LLM directly and returns the answer."""
-        try:
-            # Initialize the LLM
-            llm = ChatGoogleGenerativeAI(model=model_name, temperature=0.3)
-            # Create a custom prompt using the system prompt text
-            # Need to instantiate Config or make SYSTEM_PROMPT static/class variable
-            config = Config()
-            custom_prompt = PromptTemplate(
-                input_variables=["question"],
-                template=(
-                    config.SYSTEM_PROMPT +
-                    "\n\nQuestion: {question}" # Added newline
-                ),
-            )
-            # Format the query using the custom prompt
-            formatted_query = custom_prompt.format(question=query)
-            # Format the query properly as a message
-            messages = [HumanMessage(content=formatted_query)]
-            # Get the response
-            response = llm.invoke(messages)
-            # Extract the content from the response
-            return response.content
-        except Exception as e:
-            logger.error(f"Error querying LLM directly: {str(e)}", exc_info=True)
-            return f"Sorry, I encountered an error communicating with the language model: {str(e)}"
+            return "Sorry, an error occurred while processing your query."    
 
 
 # --- Standalone script functions ---
