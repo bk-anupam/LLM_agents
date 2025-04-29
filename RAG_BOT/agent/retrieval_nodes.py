@@ -26,12 +26,7 @@ def rerank_context_node(state: AgentState, reranker_model: CrossEncoder):
     logger.info(f"Current query for reranking: '{current_query}'")
     messages = state.get('messages')
     last_message = messages[-1] if messages else None
-    logger.info(f"Last message type: {type(last_message)}")
-    # retrieved_docs = last_message.content
-    # logger.info(f"Retrieved docs type: {type(retrieved_docs)}")
-    # logger.info(f"isinstance(retrieved_docs, list): {isinstance(retrieved_docs, list)}")
-    # logger.info(f"Last message content: {last_message.content if last_message else 'None'}")
-
+    logger.info(f"Last message type: {type(last_message)}")    
     retrieved_docs_artifact = None
     # *** KEY CHANGE: Access the artifact from the last message ***
     if isinstance(last_message, ToolMessage) and hasattr(last_message, 'artifact'):

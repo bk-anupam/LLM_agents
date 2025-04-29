@@ -46,7 +46,15 @@ final_answer_prompt_system: |
 
   Use the following retrieved context to answer the question:
   Context:
-  {context}  
+  {context}
+
+  ---
+  IMPORTANT: Provide your final answer strictly in the following JSON format, with no other text before or after the JSON block:
+  ```json
+  {{
+    "answer": "<your answer>"
+  }}
+  ```
 
 final_answer_prompt_human: "{original_query}"
 
