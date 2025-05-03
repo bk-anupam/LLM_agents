@@ -254,10 +254,8 @@ if __name__ == "__main__":
         vectordb = vector_store_instance.get_vectordb() # Get the db instance after init
         logger.info("VectorStore initialized.")
 
-        # --- Index data directory on startup ---
-        logger.info(f"Starting indexing of PDF documents in: {DATA_DIRECTORY}")
-        vector_store_instance.index_directory(DATA_DIRECTORY)
-        logger.info("Finished indexing data directory.")
+        # --- Index data directory on startup ---        
+        vector_store_instance.index_directory(DATA_DIRECTORY)        
         # --- End Indexing ---
 
         # Log the final state of indexed metadata after potential indexing

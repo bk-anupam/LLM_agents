@@ -31,7 +31,6 @@ def load_prompts(file_path):
 class Config:
     # Load prompts from YAML file
     PROMPTS = load_prompts(PROMPTS_FILE_PATH)
-
     # Telegram Bot Token
     TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
     # For tracking conversation history
@@ -42,20 +41,18 @@ class Config:
     DATA_PATH = os.environ.get('DATA_PATH', None)
     WEBHOOK_URL = os.environ.get('WEBHOOK_URL', None)
     PORT = int(os.environ.get('PORT', 5000))
+    LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', 'gemini-2.5-flash-preview-04-17')
+    EMBEDDING_MODEL_NAME = os.environ.get('EMBEDDING_MODEL_NAME', 'all-MiniLM-L6-v2')
+    RERANKER_MODEL_NAME = os.environ.get('RERANKER_MODEL_NAME', 'cross-encoder/ms-marco-MiniLM-L-6-v2')
     SEMANTIC_CHUNKING = False
     TEMPERATURE = 0
-    CONVERSATION_HISTORY_LIMIT = 10
-    LLM_MODEL_NAME = "gemini-2.5-flash-preview-04-17"
-    # LLM_MODEL_NAME = "gemini-2.0-flash"
-    # LLM_MODEL_NAME = "gemini-2.5-pro-exp-03-25"
-    JUDGE_LLM_MODEL_NAME = "gemini-2.0-flash"
-    EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+    CONVERSATION_HISTORY_LIMIT = 10    
+    JUDGE_LLM_MODEL_NAME = "gemini-2.0-flash"    
     K = 10 # Initial retrieval K for non-reranking flow (can be kept or removed if INITIAL_RETRIEVAL_K is always used)
     SEARCH_TYPE = "similarity"
     SCORE_THRESHOLD = 0.5
     # Reranking specific config
-    INITIAL_RETRIEVAL_K = 40 # Number of docs to fetch initially for reranking
-    RERANKER_MODEL_NAME = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
+    INITIAL_RETRIEVAL_K = 40 # Number of docs to fetch initially for reranking    
     RERANK_TOP_N = 10 # Number of docs to keep after reranking
 
     # --- Accessor methods for prompts (optional but good practice) ---

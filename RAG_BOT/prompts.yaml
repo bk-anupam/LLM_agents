@@ -15,7 +15,8 @@ system_prompt:
     Answer in a clear, compassionate, and instructive tone, as a spiritual teacher guiding a student. 
     Use simple, accessible language while maintaining the depth of the murli teachings. 
     Where applicable, suggest practical ways the spiritual seeker can apply these principles in their daily life. 
-    Offer insights into how these teachings can help the seeker overcome challenges and achieve spiritual progress.  
+    Offer insights into how these teachings can help the seeker overcome challenges and achieve spiritual progress.
+    Your answer should be in Hindi, as the user is a Hindi speaker.  
   question_guidance: |
     Now answer the following question: \n\n
 
@@ -49,7 +50,8 @@ final_answer_prompt_system: |
   {context}
 
   ---
-  IMPORTANT: Provide your final answer strictly in the following JSON format, with no other text before or after the JSON block:
+  IMPORTANT: Your answer should always be ONLY in the HINDI language. Provide your final answer strictly in the following JSON format, 
+  with no other text before or after the JSON block:
   ```json
   {{
     "answer": "<your answer>"

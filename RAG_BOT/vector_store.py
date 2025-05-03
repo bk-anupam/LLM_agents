@@ -1,17 +1,24 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/vector_store.py
 from collections import defaultdict
 import os
+import sys
 import datetime
 import re
-from RAG_BOT.logger import logger
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-from RAG_BOT.config import Config
-from RAG_BOT.pdf_processor import load_pdf, split_text, semantic_chunking
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage, AIMessage
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
+
+# Add the project root to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
+
+from RAG_BOT.logger import logger
+from RAG_BOT.config import Config
+from RAG_BOT.pdf_processor import PdfProcessor
+from RAG_BOT.htm_processor import HtmProcessor
 
 
 class VectorStore:
@@ -46,6 +53,9 @@ class VectorStore:
             except Exception as e:
                  logger.critical(f"Failed to create new vector store at {self.persist_directory}: {e}", exc_info=True)
                  raise e # Re-raise critical failure
+        # Initialize document processors
+        self.pdf_processor = PdfProcessor()
+        self.htm_processor = HtmProcessor()
 
     def get_vectordb(self):
         return self.vectordb
@@ -97,62 +107,49 @@ class VectorStore:
             return False
 
 
-    def build_index(self, pdf_path, chunk_size=1000, chunk_overlap=200, semantic_chunk=True):
+    def _index_document(self, documents, chunk_size=1000, chunk_overlap=200, semantic_chunk=True):
         """
-        Loads, chunks, and indexes a PDF, checking first if a document with the same date metadata already exists.
+        Chunks and indexes a list of documents, checking first if a document with the same date metadata already exists.
         Returns True if indexing occurred, False if skipped or failed.
+        This is a private helper method.
         """
-        logger.info(f"Processing PDF for indexing: {pdf_path}")
-        source_file = os.path.basename(pdf_path) # Get filename for logging
-
-        # 1. Load document and extract metadata
-        try:
-            # Ensure pdf_processor handles potential errors during loading/parsing
-            documents = load_pdf(pdf_path)
-            if not documents:
-                logger.warning(f"No documents extracted from PDF: {source_file}. Skipping.")
-                return False # Indicate skip/failure
-
-            # Extract date from the first document's metadata (assuming consistency)
-            doc_metadata = documents[0].metadata
-            extracted_date = doc_metadata.get('date') # Get the date string
-
-        except FileNotFoundError:
-            logger.error(f"PDF file not found: {pdf_path}")
+        if not documents:
+            logger.warning("Attempted to index an empty list of documents. Skipping.")
             return False
-        except Exception as e:
-            logger.error(f"Failed to load or extract metadata from PDF: {source_file}. Error: {e}", exc_info=True)
-            return False # Indicate failure
 
-        # 2. Check if document already exists using the helper method
+        # Extract date from the first document's metadata (assuming consistency for a single document/murli)
+        doc_metadata = documents[0].metadata
+        extracted_date = doc_metadata.get('date') # Get the date string
+        source_file = doc_metadata.get('source', 'N/A') # Get source for logging
+
+        # 1. Check if document already exists using the helper method
         if self._document_exists_by_date(extracted_date):
-            logger.info(f"Document with date {extracted_date} (source: {source_file}) already indexed. Skipping.")
+            logger.info(f"Document with date {extracted_date} (source: {os.path.basename(source_file)}) already indexed. Skipping.")
             return False # Indicate skip
 
-        # 3. If not existing, proceed with chunking and adding
-        logger.info(f"Proceeding with chunking and indexing for {source_file}.")
+        # 2. If not existing, proceed with chunking and adding
+        logger.info(f"Proceeding with chunking and indexing for {os.path.basename(source_file)}.")
         try:
             if semantic_chunk:
-                texts = semantic_chunking(documents)
+                texts = self.pdf_processor.semantic_chunking(documents) if documents and documents[0].metadata.get('source', '').lower().endswith('.pdf') else self.htm_processor.semantic_chunking(documents)
             else:
-                texts = split_text(documents, chunk_size, chunk_overlap)
+                texts = self.pdf_processor.split_text(documents, chunk_size, chunk_overlap) if documents and documents[0].metadata.get('source', '').lower().endswith('.pdf') else self.htm_processor.split_text(documents, chunk_size, chunk_overlap)
 
             if not texts:
-                 logger.warning(f"No text chunks generated after processing {source_file}. Nothing to index.")
+                 logger.warning(f"No text chunks generated after processing {os.path.basename(source_file)}. Nothing to index.")
                  return False # Indicate skip/failure
 
             self.add_documents(texts)
             return True # Indicate successful indexing
 
         except Exception as e:
-            logger.error(f"Error during chunking or adding documents for {source_file}: {e}", exc_info=True)
+            logger.error(f"Error during chunking or adding documents for {os.path.basename(source_file)}: {e}", exc_info=True)
             return False # Indicate failure
 
 
-    # --- New Method for Directory Indexing ---
     def index_directory(self, directory_path: str):
         """
-        Recursively finds all PDF files in the given directory and indexes them,
+        Recursively finds all PDF and HTM files in the given directory and indexes them,
         skipping those already indexed based on date metadata.
         """
         logger.info(f"Starting recursive indexing for directory: {directory_path}")
@@ -160,42 +157,50 @@ class VectorStore:
             logger.error(f"Provided path is not a valid directory: {directory_path}")
             return
 
-        pdf_files_found = []
+        files_to_process = []
         for root, _, files in os.walk(directory_path):
             for file in files:
-                if file.lower().endswith(".pdf"):
-                    pdf_files_found.append(os.path.join(root, file))
+                if file.lower().endswith((".pdf", ".htm")):
+                    files_to_process.append(os.path.join(root, file))
 
-        if not pdf_files_found:
-            logger.warning(f"No PDF files found in directory: {directory_path}")
+        if not files_to_process:
+            logger.warning(f"No PDF or HTM files found in directory: {directory_path}")
             return
 
-        logger.info(f"Found {len(pdf_files_found)} PDF files to potentially index.")
+        logger.info(f"Found {len(files_to_process)} PDF/HTM files to potentially index.")
         indexed_count = 0
         skipped_count = 0
         failed_count = 0
 
-        for pdf_file in pdf_files_found:
+        for file_path in files_to_process:
             try:
-                # build_index now returns True if indexed, False otherwise
-                was_indexed = self.build_index(
-                    pdf_file,
+                documents = []
+                if file_path.lower().endswith(".pdf"):
+                    documents = self.pdf_processor.load_pdf(file_path)
+                elif file_path.lower().endswith(".htm"):
+                    # load_htm returns a single document, put it in a list for _index_document
+                    doc = self.htm_processor.load_htm(file_path)
+                    if doc:
+                        documents.append(doc)
+
+                # _index_document now handles the rest of the process
+                was_indexed = self._index_document(
+                    documents,
                     semantic_chunk=self.config.SEMANTIC_CHUNKING
                     # Pass other params like chunk_size if needed from config
                 )
                 if was_indexed:
                     indexed_count += 1
                 else:
-                    # This counts both skips and failures within build_index
+                    # This counts both skips and failures within _index_document
                     skipped_count += 1
             except Exception as e:
                 # Catch unexpected errors directly during the loop iteration
-                logger.error(f"Unhandled exception during indexing attempt for {pdf_file}: {e}", exc_info=True)
+                logger.error(f"Unhandled exception during indexing attempt for {file_path}: {e}", exc_info=True)
                 failed_count += 1
 
         logger.info(f"Directory indexing complete for: {directory_path}")
-        logger.info(f"Summary: Indexed={indexed_count}, Skipped/Failed(in build_index)={skipped_count}, Failed(Unhandled)={failed_count}")
-    # --- End New Method ---
+        logger.info(f"Summary: Indexed={indexed_count}, Skipped/Failed(in _index_document)={skipped_count}, Failed(Unhandled)={failed_count}")
 
 
     def log_all_indexed_metadata(self):
@@ -250,7 +255,7 @@ class VectorStore:
 
         except Exception as e:
             logger.error(f"Error retrieving all metadata from ChromaDB: {e}", exc_info=True)
-
+    
 
     def query_index(self, query, chain_type="stuff", k=25, model_name="gemini-2.0-flash", date_filter=None):
         # Ensure vectordb is initialized
@@ -281,11 +286,12 @@ class VectorStore:
             retrieved_docs = retriever.invoke(query)
             context = "\n\n".join([doc.page_content for doc in retrieved_docs])
             logger.info(f"Retrieved {len(retrieved_docs)} documents for query: '{query[:50]}...'") # Log snippet
+            logger.debug(f"Context for LLM: {context}") # Log snippet
 
             custom_prompt = PromptTemplate(
                 input_variables=["context", "question"],
                 template=(
-                    self.config.SYSTEM_PROMPT +
+                    Config.get_system_prompt() +
                     "\n\nContext:\n{context}\n\nQuestion: {question}" # Added newlines for clarity
                 ),
             )
@@ -306,38 +312,21 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Error during query execution: {e}", exc_info=True)
             return "Sorry, an error occurred while processing your query."    
-
+        
 
 # --- Standalone script functions ---
 # Note: These might become less necessary if indexing happens on startup,
 # but can be kept for manual re-indexing or testing.
-
-def index_data():
-    """
-    Build the index for all PDFs in a given directory.
-    DEPRECATED if using index_directory on startup. Kept for potential manual use.
-    """
-    # Example directory - should ideally come from config or argument
-    pdf_dir = "/home/bk_anupam/code/LLM_agents/RAG_BOT/data/pdfs_to_index" # Example path
-    config = Config()
-    logger.info(f"Starting MANUAL indexing process for directory: {pdf_dir}")
-
-    vs = VectorStore() # Initialize VectorStore
-    vs.index_directory(pdf_dir) # Use the new method
-
-    logger.info("Manual indexing process complete.")
-    # Log the final state of the index
-    vs.log_all_indexed_metadata()
-
 
 def test_query_index():
     """
     Test querying the index.
     """
     vs = VectorStore()
-    query = "What are the main points regarding remembrance that Baba talks about? Summarize in 2-3 sentences."
+    # query = "1992-09-24 की मुरली का सार क्या है? कृपया पुरुषार्थ के दृष्टिकोण से हिंदी भाषा में बताएं|"
+    query = "दूसरों की चेकिंग करने के बारे में बाबा ने मुरली में क्या बताया है?"
     # Example date - adjust if needed
-    test_date = "1970-01-18" # Make sure this date exists in your indexed data for a good test
+    test_date = "1992-09-24" # Make sure this date exists in your indexed data for a good test
     logger.info(f"Testing query with date filter: {test_date}")
     try:
         result = vs.query_index(query, k=10, date_filter=test_date)
@@ -350,7 +339,24 @@ def test_query_index():
         logger.error(f"An unexpected error occurred during query test: {e}", exc_info=True)
 
 
-# if __name__ == "__main__":
+def index_data():
+    """
+    Build the index for all PDFs and HTM files in a given directory.
+    """
+    # Example directory - should ideally come from config or argument
+    data_dir = "/home/bk_anupam/code/LLM_agents/RAG_BOT/tests/data/hindi"
+    config = Config()
+    logger.info(f"Starting MANUAL indexing process for directory: {data_dir}")
+
+    vs = VectorStore() # Initialize VectorStore
+    vs.index_directory(data_dir) # Use the updated method
+
+    logger.info("Manual indexing process complete.")
+    # Log the final state of the index
+    # vs.log_all_indexed_metadata()
+
+
+if __name__ == "__main__":
     # Decide whether to index or test - less relevant if indexing is on startup
     # index_data()
-    # test_query_index()
+    test_query_index()
