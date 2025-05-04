@@ -9,32 +9,34 @@ sys.path.insert(0, project_root)
 
 from RAG_BOT.config import Config
 
-# --- Helper Prompts ---
-EVALUATE_CONTEXT_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", Config.get_evaluate_context_prompt()),
-        (
-            "human",
-            "Original User Question: {original_query}\n\nRetrieved Context:\n{context}"
-        ),
-    ]
-)
+# --- Helper Prompt Functions ---
 
-REFRAME_QUESTION_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", Config.get_reframe_question_prompt()),
-        (
-            "human",
-            "Original User Question: {original_query}\nQuery Used for Failed Retrieval: {failed_query}"
-        ),
-    ]
-)
+def get_evaluate_context_chat_prompt():
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", Config.get_evaluate_context_prompt()),
+            (
+                "human",
+                "Original User Question: {original_query}\n\nRetrieved Context:\n{context}"
+            ),
+        ]
+    )
 
-# LangChain will expect 'system_base', 'context', and 'original_query' during invoke
-FINAL_ANSWER_PROMPT = ChatPromptTemplate.from_messages(
-    [   # Pass raw template string
-        ("system", Config.get_final_answer_system_prompt_template()),
-        # Pass raw template string ({original_query})
-        ("human", Config.get_final_answer_human_prompt_template()),
-    ]
-)
+def get_reframe_question_chat_prompt():
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", Config.get_reframe_question_prompt()),
+            (
+                "human",
+                "Original User Question: {original_query}\nQuery Used for Failed Retrieval: {failed_query}"
+            ),
+        ]
+    )
+
+def get_final_answer_chat_prompt():
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", Config.get_final_answer_system_prompt_template()),
+            ("human", Config.get_final_answer_human_prompt_template()),
+        ]
+    )

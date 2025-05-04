@@ -49,7 +49,7 @@ class PdfProcessor(DocumentProcessor):
             header_text = page_text[:header_check_chars]
             header_len = len(header_text)
             header_preview = repr(header_text[:100]) # Use repr() to show whitespace/special chars clearly
-            logger.info(f"Page {metadata.get('page', i)}: Header Text Length={header_len}. Preview (first 100 chars): {header_preview}")
+            logger.debug(f"Page {metadata.get('page', i)}: Header Text Length={header_len}. Preview (first 100 chars): {header_preview}")
             potential_new_date = self.extract_date_from_text(header_text) # Use self.method
             potential_is_avyakt = self.get_murli_type(header_text) # Use self.method
 

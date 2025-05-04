@@ -3,8 +3,6 @@ import json
 import os
 import sys
 from typing import List, Optional
-
-
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import (
     HumanMessage,
@@ -19,7 +17,9 @@ sys.path.insert(0, project_root)
 from RAG_BOT.config import Config
 from RAG_BOT.logger import logger
 from RAG_BOT.agent.state import AgentState
-from RAG_BOT.agent.prompts import FINAL_ANSWER_PROMPT
+# Import the new prompt helper functions
+from RAG_BOT.agent.prompts import get_final_answer_chat_prompt
+from RAG_BOT import utils # Assuming utils has parse_json_answer
 
 
 def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_tools: ChatGoogleGenerativeAI):
@@ -64,7 +64,7 @@ def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_tools: C
             log_context_status = "sufficient" if evaluation == 'sufficient' else "answering directly (no evaluation)"
             logger.info(f"Context {log_context_status}. Generating final answer.")
             # Use base LLM without tools for response generation
-            final_answer_chain = FINAL_ANSWER_PROMPT | llm
+            final_answer_chain = get_final_answer_chat_prompt() | llm
             # Provide empty context if none was retrieved (direct answer case)
             final_answer  = final_answer_chain.invoke({
                 "system_base": Config.get_system_prompt(), # Provide system_base here

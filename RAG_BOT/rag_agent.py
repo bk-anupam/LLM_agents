@@ -19,6 +19,7 @@ from RAG_BOT.logger import logger
 # Import from the new agent package
 from RAG_BOT.agent.state import AgentState
 from RAG_BOT.agent.graph_builder import build_agent
+from RAG_BOT.utils import parse_json_answer # Import the utility function
 
 
 # --- Example Invocation ---
@@ -33,7 +34,8 @@ if __name__ == '__main__':
 
         # Example run - User query no longer needs JSON instruction
         # user_question = "Can you summarize the murli from 1950-01-18?"
-        user_question = "Can you summarize the murli of 1969-02-06"
+        # user_question = "Can you summarize the murli of 1969-02-06"
+        user_question = "1969-01-18 की मुरली का सार क्या है? कृपया पुरुषार्थ के दृष्टिकोण से हिंदी भाषा में बताएं"
 
         # Initialize state correctly
         initial_state = AgentState(
@@ -68,18 +70,12 @@ if __name__ == '__main__':
             if isinstance(final_answer_message, AIMessage):
                 print("\nFinal Answer Content:")
                 print(final_answer_message.content)
-                # Try to parse JSON for verification
-                try:
-                    # Handle potential markdown code blocks
-                    content_str = final_answer_message.content.strip()
-                    if content_str.startswith("```json"):
-                         content_str = re.sub(r"^```json\s*([\s\S]*?)\s*```$", r"\1", content_str, flags=re.MULTILINE)
-                    parsed_json = json.loads(content_str)
+                # Use the robust parsing function from utils.py
+                parsed_json = parse_json_answer(final_answer_message.content)
+                if parsed_json and "answer" in parsed_json:
                     print("\nParsed JSON Answer:", parsed_json.get("answer"))
-                except json.JSONDecodeError:
+                else:
                     print("\nWarning: Final answer content is not valid JSON.")
-                except Exception as e:
-                    print(f"\nWarning: Error processing final answer content: {e}")
 
             else:
                 print("\nFinal message was not an AIMessage:", final_answer_message)

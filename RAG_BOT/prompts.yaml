@@ -16,7 +16,7 @@ system_prompt:
     Use simple, accessible language while maintaining the depth of the murli teachings. 
     Where applicable, suggest practical ways the spiritual seeker can apply these principles in their daily life. 
     Offer insights into how these teachings can help the seeker overcome challenges and achieve spiritual progress.
-    Your answer should be in Hindi, as the user is a Hindi speaker.  
+    Do NOT attempt to answer questions about specific murlis from your internal knowledge; always retrieve context first.
   question_guidance: |
     Now answer the following question: \n\n
 
@@ -50,7 +50,7 @@ final_answer_prompt_system: |
   {context}
 
   ---
-  IMPORTANT: Your answer should always be ONLY in the HINDI language. Provide your final answer strictly in the following JSON format, 
+  IMPORTANT: Provide your final answer strictly in the following JSON format, 
   with no other text before or after the JSON block:
   ```json
   {{
@@ -83,3 +83,14 @@ judge_prompt_template: |
 
   **Output:**
   Respond ONLY with the word 'PASS' if the response meets ALL criteria. Otherwise, respond ONLY with the word 'FAIL'.
+
+# Language specific instructions (appended dynamically in code)
+language_instructions:
+  bk_persona:
+    en: "" # Empty for English (default)
+    hi: |
+      Your answer should be in Hindi.
+  final_answer_system:
+    en: "" # Empty for English (default)
+    hi: |
+      IMPORTANT: Your answer should always be ONLY in the HINDI language.

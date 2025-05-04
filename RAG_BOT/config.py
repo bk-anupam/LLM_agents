@@ -39,9 +39,11 @@ class Config:
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', None)
     VECTOR_STORE_PATH = os.environ.get('VECTOR_STORE_PATH', None)
     DATA_PATH = os.environ.get('DATA_PATH', None)
+    INDEXED_DATA_PATH = os.environ.get('INDEXED_DATA_PATH', None)
     WEBHOOK_URL = os.environ.get('WEBHOOK_URL', None)
     PORT = int(os.environ.get('PORT', 5000))
     LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', 'gemini-2.5-flash-preview-04-17')
+    LANGUAGE = os.environ.get('LANGUAGE', 'en')
     EMBEDDING_MODEL_NAME = os.environ.get('EMBEDDING_MODEL_NAME', 'all-MiniLM-L6-v2')
     RERANKER_MODEL_NAME = os.environ.get('RERANKER_MODEL_NAME', 'cross-encoder/ms-marco-MiniLM-L-6-v2')
     SEMANTIC_CHUNKING = False
@@ -57,15 +59,31 @@ class Config:
 
     # --- Accessor methods for prompts (optional but good practice) ---
     @classmethod
+    def get_bk_persona_language_instruction(cls):
+        """Gets the language-specific instruction for the BK persona prompt."""
+        # Use cls.LANGUAGE which should be updated at runtime by the bot command
+        lang = cls.LANGUAGE.lower() # Ensure lowercase for matching keys
+        return cls.PROMPTS.get('language_instructions', {}).get('bk_persona', {}).get(lang, '') # Default to empty string
+
+    @classmethod
+    def get_final_answer_language_instruction(cls):
+        """Gets the language-specific instruction for the final answer system prompt."""
+        lang = cls.LANGUAGE.lower()
+        return cls.PROMPTS.get('language_instructions', {}).get('final_answer_system', {}).get(lang, '') # Default to empty string
+
+    @classmethod
     def get_system_prompt(cls):
-        """Gets a specific system prompt."""        
-        bk_persona_prompt = cls.PROMPTS.get('system_prompt', {}).get('bk_persona', '')
-        question_guidance_prompt = cls.PROMPTS.get('system_prompt', {}).get('question_guidance', '')
-        return bk_persona_prompt + question_guidance_prompt
+        """Gets the combined system prompt including base persona, guidance, and language instruction."""
+        base_persona = cls.PROMPTS.get('system_prompt', {}).get('bk_persona', '')
+        guidance = cls.PROMPTS.get('system_prompt', {}).get('question_guidance', '')
+        lang_instruction = cls.get_bk_persona_language_instruction() # Fetch dynamic instruction
+        # Combine, adding a newline before the instruction if it exists
+        return f"{base_persona}\n{guidance}\n{lang_instruction}".strip()
 
     @classmethod
     def get_bk_persona_prompt(cls):
-        """Gets the BK persona system prompt."""
+        """Gets the base BK persona system prompt (without language instruction)."""
+        # This now returns only the base English text
         return cls.PROMPTS.get('system_prompt', {}).get('bk_persona', '')
 
     @classmethod
@@ -85,8 +103,21 @@ class Config:
 
     @classmethod
     def get_final_answer_system_prompt_template(cls):
-        """Gets the final answer system prompt template."""
-        return cls.PROMPTS.get('final_answer_prompt_system', '')
+        """Gets the final answer system prompt template including language instruction."""
+        base_template = cls.PROMPTS.get('final_answer_prompt_system', '')
+        lang_instruction = cls.get_final_answer_language_instruction() # Fetch dynamic instruction
+        # Append the instruction. Add logic if needed to insert it cleanly.
+        # For now, just appending. Consider placement relative to JSON format instruction.
+        # Let's append it before the JSON format instruction for clarity.
+        # Find the position of 'IMPORTANT: Provide your final answer...'
+        insertion_point_str = "IMPORTANT: Provide your final answer strictly"
+        insertion_point = base_template.find(insertion_point_str)
+        if lang_instruction and insertion_point != -1:
+             # Insert instruction before the JSON format part
+             return f"{base_template[:insertion_point]}{lang_instruction}\n{base_template[insertion_point:]}".strip()
+        else:
+             # If instruction is empty or insertion point not found, return base
+             return base_template
 
     @classmethod
     def get_final_answer_human_prompt_template(cls):

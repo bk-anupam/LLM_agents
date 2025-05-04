@@ -5,3 +5,4 @@ RAG_BOT/chroma_db/*
 RAG_BOT/tests/test_vector_store/*
 RAG_BOT/tests/data/*
 settings.json
+RAG_BOT/indexed_data/*
