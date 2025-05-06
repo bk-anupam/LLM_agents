@@ -19,3 +19,4 @@ PyYAML
 requests
 sentence-transformers
 torch
+langdetect
