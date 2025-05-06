@@ -30,13 +30,14 @@ def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_tools: C
     logger.info("--- Executing Agent Node ---")
     messages = state['messages']
     last_message = messages[-1]
+    language_code = state.get('language_code', 'en') # Default to English if not set
 
     # 1. Handle Initial User Query
     if isinstance(last_message, HumanMessage):
         logger.info("Handling initial user query: " + last_message.content)
         original_query_content = last_message.content
         # Decide whether to retrieve context or answer directly (usually retrieve)
-        system_prompt_msg = SystemMessage(content=Config.get_system_prompt())
+        system_prompt_msg = SystemMessage(content=Config.get_system_prompt(language_code))
         # Use LLM with tools to decide if tool call is needed
         response = llm_with_tools.invoke([system_prompt_msg] + messages)
         logger.info("LLM invoked for initial decision.")
@@ -47,7 +48,8 @@ def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_tools: C
             "current_query": original_query_content, # Start with original query
             "retry_attempted": False,
             "evaluation_result": None, # Reset evaluation
-            "context": None # Reset context
+            "context": None, # Reset context
+            "language_code": language_code # Store language code
         }
 
     # 2. Generate Final Answer or "Cannot Find" Message (in JSON format)
@@ -55,7 +57,7 @@ def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_tools: C
         logger.info("Generating final response.")
         evaluation = state.get('evaluation_result')
         original_query = state.get('original_query')
-        context = state.get('context') # Context should be populated by evaluate_context_node
+        context = state.get('context')         
 
         # Check if we should generate a proper answer
         # This happens if context is sufficient OR if agent decided to answer directly
@@ -64,10 +66,12 @@ def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_tools: C
             log_context_status = "sufficient" if evaluation == 'sufficient' else "answering directly (no evaluation)"
             logger.info(f"Context {log_context_status}. Generating final answer.")
             # Use base LLM without tools for response generation
-            final_answer_chain = get_final_answer_chat_prompt() | llm
+            final_answer_prompt = get_final_answer_chat_prompt(language_code) 
+            logger.debug(f"Final answer prompt:  {final_answer_prompt}")
+            final_answer_chain = final_answer_prompt | llm
             # Provide empty context if none was retrieved (direct answer case)
-            final_answer  = final_answer_chain.invoke({
-                "system_base": Config.get_system_prompt(), # Provide system_base here
+            final_answer  = final_answer_chain.invoke({      
+                "system_base": Config.get_system_prompt(language_code),          
                 "original_query": original_query,
                 "context": context if context else "N/A" # Provide N/A if no context
             })

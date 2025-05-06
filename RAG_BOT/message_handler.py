@@ -17,14 +17,19 @@ class MessageHandler:
         self.vector_store = vector_store # Store vector_store if needed for direct queries
 
     def _get_user_session(self, user_id):
-        """Get or create a new session for the user"""
         if user_id not in self.sessions:
-            logger.info(f"Creating new session for user {user_id}") # Added log
+            logger.info(f"Creating new session for user {user_id}")
             self.sessions[user_id] = {
                 'last_interaction': datetime.datetime.now(),
                 'conversation': [],
-                'context': {}
+                'context': {},
+                'language': 'en'  # Default language
             }
+        # Ensure essential keys are always present using setdefault
+        if 'language' not in self.sessions[user_id]:
+            self.sessions[user_id]['language'] = 'en'
+        # *** Ensure 'conversation' key exists ***
+        self.sessions[user_id].setdefault('conversation', [])
         return self.sessions[user_id]
 
     def _update_session(self, user_id, message, response):
@@ -43,11 +48,12 @@ class MessageHandler:
             session['conversation'] = session['conversation'][-history_limit:]
 
 
-    def process_message(self, incoming_message: Message):
+    def process_message(self, incoming_message: Message, language_code: str):
         """
         Process the incoming message and generate a response
         This is where you implement your custom logic
         """
+        # language_code is now passed as an argument
         user_id = incoming_message.from_user.id
         message = incoming_message.text
         if not message: # Handle cases like stickers or empty messages if needed
@@ -55,7 +61,7 @@ class MessageHandler:
              return "Sorry, I didn't receive any text."
 
         logger.info(f"Processing message from {user_id}: {message[:100]}...") # Log snippet
-        # Get user session
+        # Get user session (still useful for history, etc.)
         session = self._get_user_session(user_id)
         # Convert message to lowercase for easier matching
         message_lower = message.lower().strip()
@@ -83,10 +89,13 @@ class MessageHandler:
         else:
             # --- Agent Invocation Logic ---
             try:
-                logger.info(f"Invoking agent for thread_id={str(incoming_message.chat.id)}, query='{message[:50]}...'")
+                logger.info(f"Invoking agent for thread_id={str(incoming_message.chat.id)}, lang='{language_code}', query='{message[:50]}...'")
                 config_thread = {"configurable": {"thread_id": str(incoming_message.chat.id)}}
-                # Build the initial state for the agent
-                initial_state = {"messages": [HumanMessage(content=message)]}
+                # Build the initial state for the agent                
+                initial_state = {
+                    "messages": [HumanMessage(content=message)],
+                    "language_code": language_code 
+                }
 
                 # It's good practice to stream or use async invoke if available and the agent call might take time
                 # Using synchronous invoke for now as per the original code
@@ -122,4 +131,3 @@ class MessageHandler:
         self._update_session(user_id, message, response)
         logger.info(f"Generated response for user {user_id}: {response[:100]}...") # Log response snippet
         return response
-

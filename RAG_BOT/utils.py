@@ -3,6 +3,11 @@ from typing import Optional
 import re
 import json
 from RAG_BOT.logger import logger
+import os
+from langdetect import detect, LangDetectException
+from RAG_BOT.pdf_processor import PdfProcessor
+from RAG_BOT.htm_processor import HtmProcessor
+
 
 def parse_json_answer(content: str) -> Optional[dict]:
     """
@@ -35,7 +40,6 @@ def parse_json_answer(content: str) -> Optional[dict]:
         else:
              logger.debug("No markdown block found, attempting to parse content directly as JSON.")
 
-
     try:
         # Attempt to parse the extracted (or original) string
         parsed_json = json.loads(json_str)
@@ -62,7 +66,6 @@ def parse_json_answer(content: str) -> Optional[dict]:
         error_snippet = json_str[error_context_start:error_context_end]
         # Replace newline characters in the snippet for cleaner logging
         error_snippet_oneline = error_snippet.replace('\n', '\\n')
-
         logger.error(f"Failed to parse JSON: {e}. Near char {e.pos}: '{error_snippet_oneline}'")
         # Log the full content only at DEBUG level to avoid flooding logs
         logger.debug(f"Full content that failed parsing:\n{content}")
@@ -72,6 +75,58 @@ def parse_json_answer(content: str) -> Optional[dict]:
         logger.debug(f"Full content during unexpected error:\n{content}")
         return None
 
+
+def detect_document_language(file_path: str, default_lang: str = 'en') -> str:
+    """
+    Detects the language of a PDF or HTM document.
+
+    Args:
+        file_path: The path to the document file.
+        default_lang: The language code to return if detection fails.
+
+    Returns:
+        The detected language code (e.g., 'en', 'hi') or the default language.
+    """
+    logger.debug(f"Attempting to detect language for file: {file_path}")
+    documents = []
+    try:
+        file_ext = os.path.splitext(file_path)[1].lower()
+
+        if file_ext == '.pdf':
+            processor = PdfProcessor()
+            documents = processor.load_pdf(file_path)
+        elif file_ext == '.htm':
+            processor = HtmProcessor()
+            doc = processor.load_htm(file_path)
+            if doc:
+                documents.append(doc)
+        else:
+            logger.warning(f"Unsupported file type for language detection: {file_ext}. Defaulting to '{default_lang}'.")
+            return default_lang
+
+        if not documents:
+            logger.warning(f"No content loaded from '{file_path}'. Cannot detect language. Defaulting to '{default_lang}'.")
+            return default_lang
+
+        # Concatenate content from first few pages/docs for detection
+        sample_text = " ".join([doc.page_content for doc in documents[:5]]).strip() # Use first 5 docs/pages
+
+        if not sample_text:
+            logger.warning(f"File '{file_path}' contains no text to detect language from. Defaulting to '{default_lang}'.")
+            return default_lang
+
+        detected_lang = detect(sample_text)
+        logger.info(f"Detected language '{detected_lang}' for file: {os.path.basename(file_path)}")
+        return detected_lang
+
+    except LangDetectException as lang_err:
+        logger.warning(f"Could not detect language for file '{os.path.basename(file_path)}': {lang_err}. Defaulting to '{default_lang}'.")
+        return default_lang
+    except Exception as e:
+        logger.error(f"Error during language detection for '{file_path}': {e}", exc_info=True)
+        return default_lang
+    
+    
 # Example usage (can be removed or kept for testing)
 if __name__ == '__main__':
     test_cases = [
