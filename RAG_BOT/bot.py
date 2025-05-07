@@ -22,13 +22,15 @@ from RAG_BOT.utils import detect_document_language
 
 
 class TelegramBotApp:
-    def __init__(self, config, vectordb, agent, handler):
+    def __init__(self, config: Config, vector_store_instance: VectorStore, agent, handler: MessageHandler):
         # Initialize Flask app
         self.app = Flask(__name__)
-        self.config = config # Use injected config
+        self.config = config 
+        self.vector_store_instance = vector_store_instance
+        self.vector_store = vector_store_instance
 
         # Use injected dependencies
-        self.vectordb = vectordb
+        self.vectordb = vector_store_instance.get_vectordb()
         self.agent = agent
         self.handler = handler
 
@@ -212,7 +214,7 @@ class TelegramBotApp:
 
             # --- Updated Indexing Logic ---
             # 1. Load the document using the processor from VectorStore
-            documents = self.vectordb.pdf_processor.load_pdf(pdf_path)
+            documents = self.vector_store_instance.pdf_processor.load_pdf(pdf_path)
 
             if not documents:
                 logger.warning(f"No documents loaded from PDF: {pdf_path}. Skipping indexing.")
@@ -234,8 +236,8 @@ class TelegramBotApp:
 
             if was_indexed:
                 self.bot.reply_to(message, f"PDF '{file_name}' uploaded and indexed successfully.")
-                self.bot.reply_to(message, f"PDF '{file_name}' processed. It might have been skipped (already indexed) or "  
-                "encountered an issue during indexing. Check logs for details.")
+            else:
+                self.bot.reply_to(message, f"PDF '{file_name}' was not indexed (possibly already exists in the database).")
 
         except Exception as e:
             logger.error(f"Error handling document upload from user {user_id}: {str(e)}", exc_info=True)
