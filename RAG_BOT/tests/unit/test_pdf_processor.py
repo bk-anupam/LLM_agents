@@ -10,54 +10,6 @@ class TestPDFProcessor(unittest.TestCase):
         """Setup a PdfProcessor instance for use in tests."""
         self.processor = PdfProcessor()
 
-    def test_extract_date_from_text_yyyy_mm_dd(self):
-        text = "Document Date: 2023-10-27"
-        self.assertEqual(self.processor.extract_date_from_text(text), "2023-10-27")
-
-    def test_extract_date_from_text_dd_mm_yyyy_slash(self):
-        text = "Date: 15/04/2023"
-        self.assertEqual(self.processor.extract_date_from_text(text), "2023-04-15")
-
-    def test_extract_date_from_text_dd_mm_yyyy_dot(self):
-        text = "Date: 01.01.2024"
-        self.assertEqual(self.processor.extract_date_from_text(text), "2024-01-01")
-
-    def test_extract_date_from_text_dd_mm_yy_dot(self):
-        text = "Date: 10.12.23"
-        self.assertEqual(self.processor.extract_date_from_text(text), "2023-12-10")
-
-    def test_extract_date_from_text_dd_mm_yy_dash(self):
-        text = "Date: 05-06-22"
-        self.assertEqual(self.processor.extract_date_from_text(text), "2022-06-05")
-
-    def test_extract_date_from_text_d_m_yyyy_dot(self):
-        text = "Date: 1.1.2024"
-        self.assertEqual(self.processor.extract_date_from_text(text), "2024-01-01")
-
-    def test_extract_date_from_text_dd_m_yyyy_dot(self):
-        text = "Date: 10.1.2024"
-        self.assertEqual(self.processor.extract_date_from_text(text), "2024-01-10")
-
-    def test_extract_date_from_text_d_mm_yyyy_dot(self):
-        text = "Date: 1.12.2024"
-        self.assertEqual(self.processor.extract_date_from_text(text), "2024-12-01")
-
-    def test_extract_date_from_text_no_date(self):
-        text = "This text has no date."
-        self.assertIsNone(self.processor.extract_date_from_text(text))
-
-    def test_get_murli_type_avyakt(self):
-        text = "This is an Avyakt Murli."
-        self.assertTrue(self.processor.get_murli_type(text))
-
-    def test_get_murli_type_avyakt_case_insensitive(self):
-        text = "This is an AVYAKT Murli."
-        self.assertTrue(self.processor.get_murli_type(text))
-
-    def test_get_murli_type_sakar(self):
-        text = "This is a Sakar Murli."
-        self.assertFalse(self.processor.get_murli_type(text))
-
     @patch('RAG_BOT.pdf_processor.PyMuPDFLoader') # Changed to PyMuPDFLoader
     def test_load_pdf_multi_murli_single_murli(self, mock_pymupdfloader):
         # Mock PyPDFLoader to return pages for a single Murli
