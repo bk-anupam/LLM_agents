@@ -12,7 +12,7 @@ sys.path.insert(0, project_root)
 
 from RAG_BOT.logger import logger
 from RAG_BOT.agent.state import AgentState
-from RAG_BOT.agent.prompts import EVALUATE_CONTEXT_PROMPT, REFRAME_QUESTION_PROMPT
+from RAG_BOT.agent.prompts import get_evaluate_context_chat_prompt, get_reframe_question_chat_prompt
 
 
 def evaluate_context_node(state: AgentState, llm: ChatGoogleGenerativeAI):
@@ -46,7 +46,7 @@ def evaluate_context_node(state: AgentState, llm: ChatGoogleGenerativeAI):
 
 
     logger.info("Evaluating context from state...")
-    eval_chain = EVALUATE_CONTEXT_PROMPT | llm
+    eval_chain = get_evaluate_context_chat_prompt() | llm
     evaluation_result_str = eval_chain.invoke({
         "original_query": original_query,
         "context": context_to_evaluate # Use context from state
@@ -75,7 +75,7 @@ def reframe_query_node(state: AgentState, llm: ChatGoogleGenerativeAI):
         return {"retry_attempted": True, "current_query": original_query} # Fallback
 
     logger.info("Reframing question...")
-    reframe_chain = REFRAME_QUESTION_PROMPT | llm
+    reframe_chain = get_reframe_question_chat_prompt() | llm
     reframed_question = reframe_chain.invoke({
         "original_query": original_query,
         "failed_query": failed_query

@@ -1,119 +1,131 @@
 import os
-import re
-from datetime import datetime
-from RAG_BOT.logger import logger
-from langchain_community.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_text_splitters import SentenceTransformersTokenTextSplitter
+import sys
+from langchain_community.document_loaders import PyMuPDFLoader # Keep only PyMuPDFLoader if PyPDFLoader is unused
 from langchain_core.documents import Document
+# Add the project root to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
+from RAG_BOT.logger import logger
+from RAG_BOT.document_processor import DocumentProcessor # Import the base class
 
-def extract_date_from_text(text):
+
+class PdfProcessor(DocumentProcessor):
     """
-    Attempts to extract a date from the given text and returns it in YYYY-MM-DD format.
-    Args:
-        text (str): The text to search for a date.
-    Returns:
-        str or None: The extracted date in YYYY-MM-DD format if found, otherwise None.
+    Processes PDF files to extract text, metadata (including dates and type),
+    inheriting common functionality from DocumentProcessor.
     """
-    # Common date patterns (can be expanded)
-    date_patterns = [
-        r"(\d{4})-(\d{2})-(\d{2})",  # YYYY-MM-DD              
-        r"(\d{2})/(\d{2})/(\d{4})", # DD/MM/YYYY    
-        r"(\d{2})/(\d{2})/(\d{2})" # DD/MM/YY
-    ]
+    def _load_pdf_multi_murli(self, pdf_path, header_check_chars=300):
+        """
+        Loads a PDF, detects dates at the start of pages (indicating new Murlis),
+        and applies the correct date metadata to all pages of that Murli.
+        This is a private helper function.
 
-    for pattern in date_patterns:
-        match = re.search(pattern, text)
-        if match:
-            try:
-                if pattern == r"(\d{4})-(\d{2})-(\d{2})":
-                    year, month, day = match.groups()                
-                elif pattern == r"(\d{2})/(\d{2})/(\d{4})":
-                    day, month, year = match.groups()  
-                elif pattern == r"(\d{2})/(\d{2})/(\d{2})":
-                    day, month, year = match.groups()
-                    if int(year) < 24:
-                        year = "20" + year
-                    else:
-                        year = "19" + year
-                                  
-                if isinstance(month, str):
-                    if len(month) > 3:
-                        month_num = datetime.strptime(month, "%B").month
-                    elif len(month) == 3:
-                        month_num = datetime.strptime(month, "%b").month
-                    else:
-                        month_num = int(month)
+        Args:
+            pdf_path (str): Path to the PDF file.
+            header_check_chars (int): Number of characters at the start of a page to check for a date.
 
-                date_obj = datetime(int(year), month_num, int(day))
-                return date_obj.strftime("%Y-%m-%d")
-            except ValueError:
-                logger.error(f"Date format not understood : {match.group(0)}")
-                return None  # Return None if date format is not understood
-    return None
+        Returns:
+            list[Document]: A list of Document objects with corrected date metadata.
+        """
+        #loader = PyPDFLoader(pdf_path)
+        loader = PyMuPDFLoader(pdf_path) # Use PyMuPDFLoader for better performance
+        try:
+            pages = loader.load() # Use load() instead of load_and_split() initially
+        except Exception as e:
+            logger.error(f"Failed to load PDF: {pdf_path}. Error: {e}")
+            return []
+
+        all_documents = []
+        current_date = None
+        current_is_avyakt = None # Track avyakt status similarly
+
+        logger.info(f"Processing {len(pages)} pages from {pdf_path}...")
+
+        for i, page in enumerate(pages):
+            page_text = page.page_content
+            metadata = page.metadata.copy() # Work on a copy
+
+            # Check the beginning of the page for a new date/type
+            header_text = page_text[:header_check_chars]
+            header_len = len(header_text)
+            header_preview = repr(header_text[:100]) # Use repr() to show whitespace/special chars clearly
+            logger.debug(f"Page {metadata.get('page', i)}: Header Text Length={header_len}. Preview (first 100 chars): {header_preview}")
+            potential_new_date = self.extract_date_from_text(header_text) # Use self.method
+            potential_is_avyakt = self.get_murli_type(header_text) # Use self.method
+
+            # If a date is found in the header, assume it's the start of a new Murli
+            if potential_new_date:
+                if potential_new_date != current_date:
+                    logger.debug(f"Found new date '{potential_new_date}' on page {metadata.get('page', i)}.")
+                    current_date = potential_new_date
+                # Update avyakt status whenever a new date is found
+                if potential_is_avyakt != current_is_avyakt:
+                    logger.debug(f"Murli type set to Avyakt={potential_is_avyakt} starting page {metadata.get('page', i)}.")
+                    current_is_avyakt = potential_is_avyakt
+
+            # Apply the current date and type (if found) to the page's metadata
+            if current_date:
+                metadata["date"] = current_date
+            else:
+                # If no date has been found yet (e.g., first few pages have no date)
+                if "date" in metadata:
+                    del metadata["date"] # Remove potentially incorrect date from loader
+
+            # Only add is_avyakt to metadata if it's an Avyakt Murli
+            if current_is_avyakt is True:
+                metadata["is_avyakt"] = True
+            elif "is_avyakt" in metadata:
+                del metadata["is_avyakt"]
+
+            # Create a new Document object with updated metadata
+            # Using page_text ensures we have the content, metadata has page number etc.
+            processed_doc = Document(page_content=page_text, metadata=metadata)
+            all_documents.append(processed_doc)
+
+        if current_date is None:
+            logger.warning(f"No date could be extracted from the headers in {pdf_path}.")
+
+        logger.info(f"Finished processing {len(all_documents)} documents metadata date: {current_date}, is_avyakt: {current_is_avyakt}.")
+        return all_documents
 
 
-def get_murli_type(text):    
-    if text.lower().find('avyakt') != -1:
-        return True
-    return False
+    def load_pdf(self, pdf_path):
+        """
+        Loads a PDF and processes it to extract content and metadata,
+        handling multiple Murlis within a single PDF.        
+        Args:
+            pdf_path (str): Path to the PDF file.
+        Returns:
+            list[Document]: A list of Document objects with extracted content and metadata.
+        """
+        # Call the private helper function with a default header_check_chars
+        return self._load_pdf_multi_murli(pdf_path, header_check_chars=300)
 
-
-def load_pdf(pdf_path):
-    """Loads a PDF document from the given path and extracts the date metadata."""
-    loader = PyPDFLoader(pdf_path)
-    pages = loader.load_and_split()
-    documents = []
-    # Extract date from the first page (or a more suitable page if needed)
-    first_page_text = pages[0].page_content if pages else ""
-    date = extract_date_from_text(first_page_text[:300])
-    is_avyakt = get_murli_type(first_page_text[:300])
-    for counter, page in enumerate(pages):        
-        text = page.page_content                
-        metadata = page.metadata        
-        if date:
-            metadata["date"] = date
-            if counter == 0:
-                logger.info(f"Found date: {date}")
-        if is_avyakt:
-            metadata["is_avyakt"] = is_avyakt
-            if counter == 0:
-                logger.info(f"Found is_avyakt: {is_avyakt}")            
-        documents.append(Document(page_content=text, metadata=metadata))
-    logger.info(f"Loaded {len(documents)} documents from {pdf_path}")
-    return documents
-
-def split_text(documents, chunk_size=1000, chunk_overlap=200):
-    """Splits the documents into chunks using RecursiveCharacterTextSplitter."""
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    texts = text_splitter.split_documents(documents)
-    logger.info(f"Split documents into {len(texts)} chunks")
-    return texts
-
-def semantic_chunking(documents, model_name="sentence-transformers/all-MiniLM-L6-v2", 
-                      chunk_size=128):
-    """
-    Performs semantic chunking on the input documents using a sentence transformer model.
-    Args:
-        documents (list): A list of LangChain Document objects.
-        model_name (str): The name of the sentence transformer model to use.
-        chunk_size (int): The desired maximum size of each chunk.
-    Returns:
-        list: A list of LangChain Document objects representing the semantically chunked text.
-    """
-    logger.info(f"Performing semantic chunking using model: {model_name} with chunk size : {chunk_size}")    
-    # Initialize the sentence transformer text splitter
-    try:
-        splitter = SentenceTransformersTokenTextSplitter(model_name=model_name, chunk_overlap=0, tokens_per_chunk=chunk_size)    
-        # Split the documents into semantically meaningful chunks
-        chunks = splitter.split_documents(documents)
-        logger.info(f"Split documents into {len(chunks)} chunks using semantic chunking")
-        return chunks
-    except Exception as e:
-        logger.error(f"Error during semantic chunking: {e}")
-        raise
 
 if __name__ == "__main__":
-    pdf_path = "/home/bk_anupam/code/ML/NLP/LLMs/RAG/RAG_TELEGRAM_BOT/uploads/07_AV-E-06.02_1969.pdf"
-    documents = load_pdf(pdf_path)
-    chunks = semantic_chunking(documents)
+    # Example usage with the new class structure
+    TEST_DATA_DIR = os.path.join(os.path.dirname(__file__), 'tests', 'data', 'hindi')
+    pdf_name = "03. AV-H-07.01.1980.pdf"
+    pdf_path = os.path.join(TEST_DATA_DIR, pdf_name)
+
+    # Instantiate the processor
+    pdf_processor = PdfProcessor()
+
+    # Load documents using the instance method
+    documents_with_correct_dates = pdf_processor.load_pdf(pdf_path)
+
+    if documents_with_correct_dates:
+        # Optional: Print metadata of first few docs to verify
+        for i in range(min(5, len(documents_with_correct_dates))):
+             print(f"Doc {i} Metadata: {documents_with_correct_dates[i].metadata}")
+
+        # Proceed with splitting using inherited methods
+        # chunks = pdf_processor.split_text(documents_with_correct_dates)
+        chunks = pdf_processor.semantic_chunking(documents_with_correct_dates) # Example using semantic
+        # ... further processing (e.g., indexing chunks) ...
+        print(f"\nTotal chunks created: {len(chunks)}")
+        if chunks:
+            print(f"First chunk metadata: {chunks[0].metadata}")
+            print(f"Last chunk metadata: {chunks[-1].metadata}")
+    else:
+        print(f"Could not process PDF: {pdf_path}")

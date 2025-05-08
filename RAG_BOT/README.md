@@ -7,14 +7,19 @@ This project implements a Telegram bot powered by a Retrieval-Augmented Generati
 *   **Telegram Interface:** Interact with the RAG agent directly through Telegram.
 *   **RAG Pipeline:** Utilizes a sophisticated LangGraph agent for:
     *   Retrieving relevant context from spiritual documents based on user queries.
+    *   **Reranking** retrieved context using a CrossEncoder model for improved relevance.
     *   Evaluating the relevance of retrieved context.
     *   Reframing the user's query if the initial context is insufficient.
-    *   Generating answers grounded in the retrieved documents using Google's Gemini models.
+    *   Generating answers (in a structured JSON format) grounded in the retrieved documents using Google's Gemini models.
 *   **Vector Store:** Uses ChromaDB to store and query document embeddings.
-*   **Document Indexing:** Upload PDF documents directly to the Telegram bot for automatic indexing into the vector store.
+*   **Document Indexing:**
+    *   Upload PDF and HTM documents directly to the Telegram bot for automatic indexing.
+    *   Automatic indexing of PDF and HTM documents from a specified data directory on startup.
+    *   Language detection for uploaded documents.
 *   **Date Filtering:** Supports filtering queries by date using the format `date:YYYY-MM-DD` within the `/query` command or general messages.
+*   **Multi-language Support:** Initial support for English and Hindi, with user-selectable language preference via `/language` command and language detection for uploaded documents.
 *   **Session Management:** Basic in-memory session handling for conversation context (via `MessageHandler`).
-*   **Webhook Deployment:** Designed for deployment using Flask and Telegram webhooks.
+*   **Webhook Deployment:** Designed for deployment using Flask, Gunicorn, and Telegram webhooks.
 *   **Configuration:** Centralized configuration management (`config.py`).
 *   **Logging:** Structured logging for monitoring and debugging (`logger.py`).
 *   **Integration Tests:** Includes tests to verify core functionalities like indexing, retrieval, and agent logic.
@@ -25,9 +30,10 @@ This project implements a Telegram bot powered by a Retrieval-Augmented Generati
 *   **Langchain & LangGraph:** Framework for building the RAG agent and defining the workflow.
 *   **Google Generative AI (Gemini):** LLM used for understanding queries, evaluating context, reframing questions, and generating answers.
 *   **ChromaDB:** Vector database for storing and retrieving document embeddings.
-*   **Sentence Transformers:** (via `langchain-huggingface`) For generating document embeddings.
+*   **Sentence Transformers:** (via `langchain-huggingface` and `sentence-transformers`) For generating document embeddings and for reranking (CrossEncoder).
 *   **pyTelegramBotAPI:** Library for interacting with the Telegram Bot API.
 *   **Flask:** Web framework for handling Telegram webhooks.
+*   **Gunicorn:** WSGI HTTP server for running the Flask application.
 
 ## How It Works
 
@@ -36,14 +42,16 @@ Think of the bot as an intelligent assistant that uses a specific process to ans
 1.  **Query Analysis:** First, the agent analyzes your question. Does it need to consult the documents, or is it a general question it already knows?
 2.  **Smart Retrieval:** If documents are needed, it searches the knowledge base (ChromaDB) for the most relevant snippets based on your query.
 3.  **Relevance Check:** The agent doesn't just blindly use what it finds. It evaluates if the retrieved information *actually* helps answer your original question.
-4.  **Self-Correction Loop:** If the initial context isn't good enough, the agent smartly rephrases the query and tries searching again – a built-in retry mechanism for better results.
-5.  **Grounded Generation:** Finally, using the validated context, the agent generates a clear answer. If no relevant context is found even after the retry, it informs the user gracefully.
+4.  **Context Reranking:** The initially retrieved documents are then reranked using a more sophisticated model (CrossEncoder) to further refine the context and bring the most relevant passages to the top.
+5.  **Relevance Evaluation (Post-Reranking):** The agent evaluates if the *reranked* context is sufficient to answer the original question.
+6.  **Self-Correction Loop:** If the reranked context is still not good enough, the agent smartly rephrases the query and tries searching (and reranking) again – a built-in retry mechanism for better results.
+7.  **Grounded Generation:** Finally, using the validated and reranked context, the agent generates a clear answer in a structured JSON format. If no relevant context is found even after the retry, it informs the user gracefully (also in JSON format).
 
 This graph-based approach allows the agent to dynamically decide its path, evaluate its own findings, and even self-correct, leading to more accurate and relevant answers.
 
 ### Workflow Diagram
 
-The following diagram visualizes the agent's workflow:
+The following diagram visualizes the agent's workflow (note: the diagram should be updated to reflect the new reranking step between retrieval and evaluation):
 
 ![Agent Workflow](rag_agent_graph.png)
 ## Setup
@@ -76,15 +84,21 @@ The following diagram visualizes the agent's workflow:
     GEMINI_API_KEY="YOUR_GOOGLE_API_KEY"
 
     # Paths (adjust if needed)
-    VECTOR_STORE_PATH="./chroma_db" # Default path for ChromaDB
+    VECTOR_STORE_PATH="./chroma_db"       # Default path for ChromaDB
+    DATA_PATH="./data"                    # Directory for documents to be indexed on startup
+    # INDEXED_DATA_PATH="./indexed_data"  # (Optional) Path to move indexed files, if implemented
 
     # Agent/Model Config (adjust defaults in config.py or override here)
     # LLM_MODEL_NAME="gemini-1.5-flash-latest" # Or another compatible Gemini model
     # EMBEDDING_MODEL_NAME="all-MiniLM-L6-v2"
+    # RERANKER_MODEL_NAME="cross-encoder/ms-marco-MiniLM-L-6-v2" # Or other CrossEncoder model
     # TEMPERATURE=0.1
-    # K=10 # Number of documents to retrieve
+    # INITIAL_RETRIEVAL_K=20 # Number of documents to initially retrieve before reranking
+    # RERANK_TOP_N=5         # Number of documents to keep after reranking
     # SEARCH_TYPE="similarity" # Or "mmr"
     # SEMANTIC_CHUNKING=True # Or False
+    # LANGUAGE="en" # Default language for the bot (e.g., 'en', 'hi')
+    # LOG_LEVEL="INFO"
     # MAX_CONVERSATION_HISTORY=10
     # PORT=5000 # Port for Flask app
     ```
@@ -94,17 +108,27 @@ The following diagram visualizes the agent's workflow:
 ## Usage
 
 1.  **Start the Bot:**
-    Run the Flask application:
+    Ensure your `.env` file is configured. If using Docker (recommended for Gunicorn):
+    ```bash
+    docker build -t rag-bot .
+    docker run -p 5000:5000 --env-file .env rag-bot
+    ```
+    Alternatively, to run directly with Gunicorn (if installed locally):
+    ```bash
+    gunicorn -b 0.0.0.0:5000 bot:app
+    ```
+    Or for development with Flask's built-in server:
     ```bash
     python bot.py
     ```
-    This will start the Flask server and set up the Telegram webhook.
+    This will start the application server and set up the Telegram webhook. The bot will also attempt to index any documents found in the `DATA_PATH` directory.
 
 2.  **Interact with the Bot on Telegram:**
     *   Find your bot on Telegram.
     *   Send `/start` to initiate interaction.
     *   Send `/help` to see available commands.
-    *   **Upload PDFs:** Send PDF documents directly to the chat to have them indexed.
+    *   **Set Language:** Use `/language hindi` or `/language english` to set your preferred language for bot responses.
+    *   **Upload Documents:** Send PDF or HTM documents directly to the chat to have them indexed. The bot will attempt to detect the document's language and index it.
     *   **Query Documents:**
         *   Use the `/query` command: `/query What is the essence of the Murli?`
         *   Query with a date filter: `/query Summarize the main points date:1969-01-18`

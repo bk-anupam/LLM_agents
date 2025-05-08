@@ -14,3 +14,5 @@ class AgentState(TypedDict):
     evaluation_result: Optional[Literal['sufficient', 'insufficient']]
     # Store the raw retrieved docs before reranking (optional, for debugging/analysis)
     raw_retrieved_docs: Optional[List[str]]
+     # Language code for the final answer generation
+    language_code: Optional[Literal['en', 'hi']]

@@ -1,23 +1,29 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/vector_store.py
 from collections import defaultdict
 import os
+import sys
 import datetime
-import re
-from RAG_BOT.logger import logger
+# shutil and re are no longer directly used by this class after refactoring
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-from RAG_BOT.config import Config
-from RAG_BOT.pdf_processor import load_pdf, split_text, semantic_chunking
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage, AIMessage
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 
+# Add the project root to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
+
+from RAG_BOT.logger import logger
+from RAG_BOT.config import Config
+from RAG_BOT.document_processor import DocumentProcessor
+
 
 class VectorStore:
     def __init__(self, persist_directory=None):
         self.config = Config()
-        self.persist_directory = persist_directory or self.config.VECTOR_STORE_PATH
+        self.persist_directory = persist_directory or self.config.VECTOR_STORE_PATH        
         # Initialize the embedding model once.
         self.embeddings = HuggingFaceEmbeddings(model_name=self.config.EMBEDDING_MODEL_NAME)
         logger.info("Embedding model initialized successfully.")
@@ -46,6 +52,9 @@ class VectorStore:
             except Exception as e:
                  logger.critical(f"Failed to create new vector store at {self.persist_directory}: {e}", exc_info=True)
                  raise e # Re-raise critical failure
+        # Initialize document processors
+        self.document_processor = DocumentProcessor()
+        
 
     def get_vectordb(self):
         return self.vectordb
@@ -62,17 +71,21 @@ class VectorStore:
             logger.error(f"Failed to add documents from source {os.path.basename(source)} to ChromaDB: {e}", exc_info=True)
 
 
-    def _document_exists_by_date(self, date_str: str) -> bool:
+    def document_exists(self, date_str: str, language: str) -> bool:
         """
-        Checks if any document with the given date string already exists in the index.
+        Checks if any document with the given date string and language already exists in the index.
         """
         if not date_str:
             # If date extraction failed, we assume it doesn't exist to allow indexing.
             # The alternative is to skip indexing files without dates.
             logger.warning("Cannot check for existing document without a date string. Assuming it does not exist.")
             return False
+        if not language:
+            # Similarly, if language is missing, we cannot perform the combined check.
+            logger.warning("Cannot check for existing document without language metadata. Assuming it does not exist.")
+            return False
 
-        logger.debug(f"Checking for existing documents with date: {date_str}")
+        logger.debug(f"Checking for existing documents with date: {date_str} and language: {language}")
         try:
             # Check if vectordb is initialized
             if not hasattr(self, 'vectordb') or self.vectordb is None:
@@ -80,133 +93,92 @@ class VectorStore:
                 return False # Cannot check, assume not found
 
             existing_docs = self.vectordb.get(
-                where={"date": date_str},
+                # Use $and operator for multiple metadata filters
+                where={
+                    "$and": [
+                        {"date": date_str},
+                        {"language": language}
+                    ]                },
                 limit=1, # We only need to know if at least one exists
                 include=[] # We don't need metadata or documents, just the count implicitly
             )
             # Check if the 'ids' list is not empty
             if existing_docs and existing_docs.get('ids'):
-                logger.debug(f"Document with date {date_str} found in the index.")
+                logger.debug(f"Document with date {date_str} and language {language} found in the index.")
                 return True
             else:
-                logger.debug(f"No document found with date {date_str}.")
+                logger.debug(f"No document found with date {date_str} and language {language}.")
                 return False
         except Exception as e:
-            logger.error(f"Error checking ChromaDB for existing date {date_str}: {e}. Assuming document does not exist.", exc_info=True)
+            logger.error(f"Error checking ChromaDB for existing date {date_str} and language {language}: {e}. Assuming document does not exist.", exc_info=True)
             # Decide how to handle errors - returning False assumes it doesn't exist, allowing indexing to proceed.
             return False
 
 
-    def build_index(self, pdf_path, chunk_size=1000, chunk_overlap=200, semantic_chunk=True):
+    def index_document(self, documents, semantic_chunk=False):
         """
-        Loads, chunks, and indexes a PDF, checking first if a document with the same date metadata already exists.
+        Chunks and indexes a list of documents, checking first if a document with the same date metadata already exists.
         Returns True if indexing occurred, False if skipped or failed.
+        This is a private helper method.
         """
-        logger.info(f"Processing PDF for indexing: {pdf_path}")
-        source_file = os.path.basename(pdf_path) # Get filename for logging
-
-        # 1. Load document and extract metadata
-        try:
-            # Ensure pdf_processor handles potential errors during loading/parsing
-            documents = load_pdf(pdf_path)
-            if not documents:
-                logger.warning(f"No documents extracted from PDF: {source_file}. Skipping.")
-                return False # Indicate skip/failure
-
-            # Extract date from the first document's metadata (assuming consistency)
-            doc_metadata = documents[0].metadata
-            extracted_date = doc_metadata.get('date') # Get the date string
-
-        except FileNotFoundError:
-            logger.error(f"PDF file not found: {pdf_path}")
+        if not documents:
+            logger.warning("Attempted to index an empty list of documents. Skipping.")
             return False
-        except Exception as e:
-            logger.error(f"Failed to load or extract metadata from PDF: {source_file}. Error: {e}", exc_info=True)
-            return False # Indicate failure
 
-        # 2. Check if document already exists using the helper method
-        if self._document_exists_by_date(extracted_date):
-            logger.info(f"Document with date {extracted_date} (source: {source_file}) already indexed. Skipping.")
+        # Extract date from the first document's metadata (assuming consistency for a single document/murli)
+        doc_metadata = documents[0].metadata
+        extracted_date = doc_metadata.get('date') # Get the date string
+        extracted_language = doc_metadata.get('language') # Get the language string
+        source_file = doc_metadata.get('source', 'N/A') # Get source for logging
+
+        # 1. Check if document already exists using the helper method
+        if self.document_exists(extracted_date, extracted_language):
+            logger.info(f"Document with date {extracted_date} and language {extracted_language} (source: {os.path.basename(source_file)}) already indexed. Skipping.")
             return False # Indicate skip
 
-        # 3. If not existing, proceed with chunking and adding
-        logger.info(f"Proceeding with chunking and indexing for {source_file}.")
+        # 2. If not existing, proceed with chunking and adding
+        logger.info(f"Proceeding with chunking and indexing for {os.path.basename(source_file)}.")
         try:
             if semantic_chunk:
-                texts = semantic_chunking(documents)
+                texts = self.document_processor.semantic_chunking(
+                    documents, 
+                    chunk_size=self.config.CHUNK_SIZE, 
+                    chunk_overlap=self.config.CHUNK_OVERLAP,
+                    model_name=self.config.EMBEDDING_MODEL_NAME
+                )
             else:
-                texts = split_text(documents, chunk_size, chunk_overlap)
-
+                texts = self.document_processor.split_text(
+                    documents, 
+                    chunk_size=self.config.CHUNK_SIZE, 
+                    chunk_overlap=self.config.CHUNK_OVERLAP
+                )
+                    
             if not texts:
-                 logger.warning(f"No text chunks generated after processing {source_file}. Nothing to index.")
+                 logger.warning(f"No text chunks generated after processing {os.path.basename(source_file)}. Nothing to index.")
                  return False # Indicate skip/failure
 
             self.add_documents(texts)
+            logger.info(f"Successfully indexed {len(texts)} chunks from {os.path.basename(source_file)}.")
             return True # Indicate successful indexing
 
         except Exception as e:
-            logger.error(f"Error during chunking or adding documents for {source_file}: {e}", exc_info=True)
+            logger.error(f"Error during chunking or adding documents for {os.path.basename(source_file)}: {e}", exc_info=True)
             return False # Indicate failure
 
-
-    # --- New Method for Directory Indexing ---
-    def index_directory(self, directory_path: str):
-        """
-        Recursively finds all PDF files in the given directory and indexes them,
-        skipping those already indexed based on date metadata.
-        """
-        logger.info(f"Starting recursive indexing for directory: {directory_path}")
-        if not os.path.isdir(directory_path):
-            logger.error(f"Provided path is not a valid directory: {directory_path}")
-            return
-
-        pdf_files_found = []
-        for root, _, files in os.walk(directory_path):
-            for file in files:
-                if file.lower().endswith(".pdf"):
-                    pdf_files_found.append(os.path.join(root, file))
-
-        if not pdf_files_found:
-            logger.warning(f"No PDF files found in directory: {directory_path}")
-            return
-
-        logger.info(f"Found {len(pdf_files_found)} PDF files to potentially index.")
-        indexed_count = 0
-        skipped_count = 0
-        failed_count = 0
-
-        for pdf_file in pdf_files_found:
-            try:
-                # build_index now returns True if indexed, False otherwise
-                was_indexed = self.build_index(
-                    pdf_file,
-                    semantic_chunk=self.config.SEMANTIC_CHUNKING
-                    # Pass other params like chunk_size if needed from config
-                )
-                if was_indexed:
-                    indexed_count += 1
-                else:
-                    # This counts both skips and failures within build_index
-                    skipped_count += 1
-            except Exception as e:
-                # Catch unexpected errors directly during the loop iteration
-                logger.error(f"Unhandled exception during indexing attempt for {pdf_file}: {e}", exc_info=True)
-                failed_count += 1
-
-        logger.info(f"Directory indexing complete for: {directory_path}")
-        logger.info(f"Summary: Indexed={indexed_count}, Skipped/Failed(in build_index)={skipped_count}, Failed(Unhandled)={failed_count}")
-    # --- End New Method ---
-
+    # _move_indexed_file method has been removed as its logic is now in FileManager.
+    # index_directory method has been removed as its logic is now in DocumentIndexer.
 
     def log_all_indexed_metadata(self):
-        """Retrieves and logs the date and is_avyakt metadata for ALL indexed documents."""
+        """
+        Retrieves and logs the date, is_avyakt, and language metadata for ALL indexed documents.
+        Groups and counts by (date, is_avyakt, language).
+        """
         if not hasattr(self, 'vectordb') or self.vectordb is None:
             logger.error("VectorDB instance not available for metadata retrieval.")
             return
         try:
             logger.info("Attempting to retrieve metadata for ALL indexed documents...")
-            # Use get() without limit to fetch all, include only 'metadatas'
-            all_data = self.vectordb.get(include=['metadatas']) # No limit specified
+            all_data = self.vectordb.get(include=['metadatas'])
             if all_data and all_data.get('ids'):
                 all_metadatas = all_data.get('metadatas', [])
                 total_docs = len(all_data['ids'])
@@ -214,43 +186,36 @@ class VectorStore:
                 if not all_metadatas:
                     logger.warning("Retrieved document IDs but no corresponding metadata.")
                     return
-                # Use defaultdict for easier counting grouped by date and then by avyakt status
-                # Structure: {date: {is_avyakt_status: count}}
-                metadata_summary = defaultdict(lambda: defaultdict(int))
-                missing_metadata_count = 0 # Count docs missing both date and avyakt
+                # Structure: {(date, is_avyakt, language): count}
+                metadata_summary = defaultdict(int)
+                missing_metadata_count = 0
                 for metadata in all_metadatas:
                     date = metadata.get('date', 'N/A')
-                    is_avyakt = metadata.get('is_avyakt', 'N/A') # Default to 'N/A' if missing
-
-                    if date == 'N/A' and is_avyakt == 'N/A':
+                    is_avyakt = metadata.get('is_avyakt', 'N/A')
+                    language = metadata.get('language', 'N/A')
+                    if date == 'N/A' and is_avyakt == 'N/A' and language == 'N/A':
                         missing_metadata_count += 1
                     else:
-                        # Group by date, then by avyakt status, and count occurrences
-                        metadata_summary[date][is_avyakt] += 1
-                logger.info("--- Logging Date and Avyakt Status for All Indexed Documents ---")
+                        metadata_summary[(date, is_avyakt, language)] += 1
+                logger.info("--- Logging Date, Avyakt Status, and Language for All Indexed Documents ---")
                 if metadata_summary:
-                    # Sort by date for chronological logging
-                    for date, avyakt_counts in sorted(metadata_summary.items()):
-                        logger.info(f"  - Date: {date}")
-                        # Sort avyakt statuses (True/False/N/A) for consistent order
-                        for is_avyakt, count in sorted(avyakt_counts.items()):
-                             # Make the boolean more readable
-                            avyakt_str = "Avyakt" if is_avyakt is True else "Sakar/Other" if is_avyakt is False else "Unknown Status"
-                            logger.info(f"    - Type: {avyakt_str} (is_avyakt={is_avyakt}), Count: {count}")
+                    # Sort by date, then is_avyakt (converted to string for comparison), then language for consistent logging
+                    # Use a custom key to handle potential non-boolean types for is_avyakt during sorting
+                    for (date, is_avyakt, language), count in sorted(metadata_summary.items(), key=lambda item: (item[0][0], str(item[0][1]), item[0][2])):
+                        avyakt_str = "Avyakt" if is_avyakt is True else "Sakar/Other" if is_avyakt is False else "Unknown Status"
+                        logger.info(f"Date: {date} - Type: {avyakt_str}, Language: {language}, Count: {count}")
                 else:
-                    logger.info("No documents with date or is_avyakt metadata found.")
+                    logger.info("No documents with date, is_avyakt, or language metadata found.")
 
                 if missing_metadata_count > 0:
-                    logger.warning(f"Found {missing_metadata_count} documents missing both date and is_avyakt metadata.")
+                    logger.warning(f"Found {missing_metadata_count} documents missing date, is_avyakt, and language metadata.")
 
                 logger.info("--- Finished Logging All Indexed Metadata ---")
-
             else:
                 logger.info("ChromaDB index appears to be empty. No metadata to retrieve.")
-
         except Exception as e:
             logger.error(f"Error retrieving all metadata from ChromaDB: {e}", exc_info=True)
-
+    
 
     def query_index(self, query, chain_type="stuff", k=25, model_name="gemini-2.0-flash", date_filter=None):
         # Ensure vectordb is initialized
@@ -281,11 +246,12 @@ class VectorStore:
             retrieved_docs = retriever.invoke(query)
             context = "\n\n".join([doc.page_content for doc in retrieved_docs])
             logger.info(f"Retrieved {len(retrieved_docs)} documents for query: '{query[:50]}...'") # Log snippet
+            logger.debug(f"Context for LLM: {context}") # Log snippet
 
             custom_prompt = PromptTemplate(
                 input_variables=["context", "question"],
                 template=(
-                    self.config.SYSTEM_PROMPT +
+                    self.config.get_system_prompt(language_code="en") + # Call on instance and provide language_code
                     "\n\nContext:\n{context}\n\nQuestion: {question}" # Added newlines for clarity
                 ),
             )
@@ -306,51 +272,7 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Error during query execution: {e}", exc_info=True)
             return "Sorry, an error occurred while processing your query."    
+        
 
-
-# --- Standalone script functions ---
-# Note: These might become less necessary if indexing happens on startup,
-# but can be kept for manual re-indexing or testing.
-
-def index_data():
-    """
-    Build the index for all PDFs in a given directory.
-    DEPRECATED if using index_directory on startup. Kept for potential manual use.
-    """
-    # Example directory - should ideally come from config or argument
-    pdf_dir = "/home/bk_anupam/code/LLM_agents/RAG_BOT/data/pdfs_to_index" # Example path
-    config = Config()
-    logger.info(f"Starting MANUAL indexing process for directory: {pdf_dir}")
-
-    vs = VectorStore() # Initialize VectorStore
-    vs.index_directory(pdf_dir) # Use the new method
-
-    logger.info("Manual indexing process complete.")
-    # Log the final state of the index
-    vs.log_all_indexed_metadata()
-
-
-def test_query_index():
-    """
-    Test querying the index.
-    """
-    vs = VectorStore()
-    query = "What are the main points regarding remembrance that Baba talks about? Summarize in 2-3 sentences."
-    # Example date - adjust if needed
-    test_date = "1970-01-18" # Make sure this date exists in your indexed data for a good test
-    logger.info(f"Testing query with date filter: {test_date}")
-    try:
-        result = vs.query_index(query, k=10, date_filter=test_date)
-        print("\n--- Query Result ---")
-        print(result)
-        print("--- End Query Result ---\n")
-    except ValueError as e:
-        logger.error(f"Query failed: {e}")
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during query test: {e}", exc_info=True)
-
-
-# if __name__ == "__main__":
-    # Decide whether to index or test - less relevant if indexing is on startup
-    # index_data()
-    # test_query_index()
+# Standalone script functions (test_query_index, index_data) and
+# if __name__ == "__main__": block have been moved to RAG_BOT/vector_store_cli.py
