@@ -56,11 +56,11 @@ class PdfProcessor(DocumentProcessor):
             # If a date is found in the header, assume it's the start of a new Murli
             if potential_new_date:
                 if potential_new_date != current_date:
-                    logger.info(f"Found new date '{potential_new_date}' on page {metadata.get('page', i)}.")
+                    logger.debug(f"Found new date '{potential_new_date}' on page {metadata.get('page', i)}.")
                     current_date = potential_new_date
                 # Update avyakt status whenever a new date is found
                 if potential_is_avyakt != current_is_avyakt:
-                    logger.info(f"Murli type set to Avyakt={potential_is_avyakt} starting page {metadata.get('page', i)}.")
+                    logger.debug(f"Murli type set to Avyakt={potential_is_avyakt} starting page {metadata.get('page', i)}.")
                     current_is_avyakt = potential_is_avyakt
 
             # Apply the current date and type (if found) to the page's metadata
@@ -85,8 +85,9 @@ class PdfProcessor(DocumentProcessor):
         if current_date is None:
             logger.warning(f"No date could be extracted from the headers in {pdf_path}.")
 
-        logger.info(f"Finished processing. Returning {len(all_documents)} documents with updated metadata.")
+        logger.info(f"Finished processing {len(all_documents)} documents metadata date: {current_date}, is_avyakt: {current_is_avyakt}.")
         return all_documents
+
 
     def load_pdf(self, pdf_path):
         """

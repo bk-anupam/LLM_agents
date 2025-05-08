@@ -42,7 +42,7 @@ def parse_json_answer(content: str) -> Optional[dict]:
 
     try:
         # Attempt to parse the extracted (or original) string
-        parsed_json = json.loads(json_str)
+        parsed_json = json.loads(json_str, strict=False)
 
         if isinstance(parsed_json, dict):
             # Optionally, validate if the dict has the expected 'answer' key

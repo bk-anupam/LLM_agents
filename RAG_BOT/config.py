@@ -56,6 +56,8 @@ class Config:
     # Reranking specific config
     INITIAL_RETRIEVAL_K = 40 # Number of docs to fetch initially for reranking    
     RERANK_TOP_N = 10 # Number of docs to keep after reranking
+    CHUNK_SIZE = 1000 # Size of chunks for semantic chunking
+    CHUNK_OVERLAP = 100 # Overlap size for semantic chunking
 
     # --- Accessor methods for prompts (optional but good practice) ---
     @classmethod

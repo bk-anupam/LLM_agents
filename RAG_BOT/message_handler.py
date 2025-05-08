@@ -5,16 +5,15 @@ from RAG_BOT.logger import logger # Corrected import path based on other files
 from langchain_core.messages import HumanMessage
 from telebot.types import Message
 from langgraph.graph import StateGraph
-from RAG_BOT.utils import parse_json_answer 
+from RAG_BOT.utils import parse_json_answer
 
 
 class MessageHandler:
-    def __init__(self, agent: StateGraph, config: Config, vector_store=None): 
+    def __init__(self, agent: StateGraph, config: Config):
         # Store user session data (could be moved to a database for persistence)
         self.config = config
         self.sessions = config.USER_SESSIONS
         self.agent = agent
-        self.vector_store = vector_store # Store vector_store if needed for direct queries
 
     def _get_user_session(self, user_id):
         if user_id not in self.sessions:
@@ -91,10 +90,10 @@ class MessageHandler:
             try:
                 logger.info(f"Invoking agent for thread_id={str(incoming_message.chat.id)}, lang='{language_code}', query='{message[:50]}...'")
                 config_thread = {"configurable": {"thread_id": str(incoming_message.chat.id)}}
-                # Build the initial state for the agent                
+                # Build the initial state for the agent
                 initial_state = {
                     "messages": [HumanMessage(content=message)],
-                    "language_code": language_code 
+                    "language_code": language_code
                 }
 
                 # It's good practice to stream or use async invoke if available and the agent call might take time
@@ -108,9 +107,9 @@ class MessageHandler:
                     if isinstance(final_messages, list) and final_messages:
                         # Get the last message, assuming it's the agent's response
                         last_msg = final_messages[-1]
-                        if hasattr(last_msg, 'content'):                            
+                        if hasattr(last_msg, 'content'):
                             json_result = parse_json_answer(last_msg.content)
-                            answer = json_result.get("answer") if json_result else None                            
+                            answer = json_result.get("answer") if json_result else None
                         else:
                             logger.warning(f"Last message in agent response has no 'content' attribute: {last_msg}")
                     else:

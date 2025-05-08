@@ -18,16 +18,20 @@ from vector_store import VectorStore
 from RAG_BOT.agent.graph_builder import build_agent
 from langchain_core.messages import HumanMessage
 from message_handler import MessageHandler
-from RAG_BOT.utils import detect_document_language 
+from RAG_BOT.utils import detect_document_language
+from RAG_BOT.file_manager import FileManager 
+from RAG_BOT.document_indexer import DocumentIndexer 
+from RAG_BOT.pdf_processor import PdfProcessor
 
 
 class TelegramBotApp:
-    def __init__(self, config: Config, vector_store_instance: VectorStore, agent, handler: MessageHandler):
+    def __init__(self, config: Config, vector_store_instance: VectorStore, agent, 
+                 handler: MessageHandler, pdf_processor: PdfProcessor=None):
         # Initialize Flask app
         self.app = Flask(__name__)
-        self.config = config 
+        self.config = config
         self.vector_store_instance = vector_store_instance
-        self.vector_store = vector_store_instance
+        self.pdf_processor = pdf_processor or PdfProcessor() # Use provided or default processor
 
         # Use injected dependencies
         self.vectordb = vector_store_instance.get_vectordb()
@@ -133,7 +137,7 @@ class TelegramBotApp:
 
     def send_help(self, message):
         logger.info(f"Received /help command from user {message.from_user.id}")
-        self.bot.reply_to(message, 
+        self.bot.reply_to(message,
             """
             Available Commands:
             /start - Show welcome message.
@@ -152,7 +156,7 @@ class TelegramBotApp:
 
         if len(parts) < 2:
             # Fetch usage help from config
-            usage_text = self.config.get_user_message('language_usage_help', 
+            usage_text = self.config.get_user_message('language_usage_help',
                                                       "Usage: /language <language>\nSupported languages: english, hindi")
             self.bot.reply_to(message, usage_text)
             return
@@ -164,7 +168,7 @@ class TelegramBotApp:
         elif lang_input == 'hindi':
             lang_code = 'hi'
         else:
-            unsupported_text = self.config.get_user_message('language_unsupported', 
+            unsupported_text = self.config.get_user_message('language_unsupported',
                                                             "Unsupported language. Please use 'english' or 'hindi'.")
             self.bot.reply_to(message, unsupported_text)
             return
@@ -185,7 +189,7 @@ class TelegramBotApp:
         self.bot.reply_to(message, reply_text)
 
 
-    # --- Document Upload Handling (Consider if needed with startup indexing) ---    
+    # --- Document Upload Handling (Consider if needed with startup indexing) ---
     def handle_document(self, message: Message):
         """
         Handles incoming document messages. Checks for PDF, saves, and indexes.
@@ -202,7 +206,6 @@ class TelegramBotApp:
         try:
             file_info = self.bot.get_file(message.document.file_id)
             downloaded_file = self.bot.download_file(file_info.file_path)
-
             # Define a specific upload directory (maybe configurable)
             upload_dir = os.path.join(project_root, "uploads") # Example path
             os.makedirs(upload_dir, exist_ok=True)
@@ -211,33 +214,25 @@ class TelegramBotApp:
             with open(pdf_path, 'wb') as new_file:
                 new_file.write(downloaded_file)
             logger.info(f"PDF saved to: {pdf_path}")
-
             # --- Updated Indexing Logic ---
             # 1. Load the document using the processor from VectorStore
-            documents = self.vector_store_instance.pdf_processor.load_pdf(pdf_path)
-
+            documents = self.pdf_processor.load_pdf(pdf_path)
             if not documents:
                 logger.warning(f"No documents loaded from PDF: {pdf_path}. Skipping indexing.")
                 self.bot.reply_to(message, f"Could not load content from PDF '{file_name}'.")
                 return
-
             # 2. Detect language using the utility function
             language = detect_document_language(pdf_path) # Defaults to 'en' on failure
-
             # 3. Add detected language metadata
             for doc in documents:
                 doc.metadata['language'] = language
             logger.debug(f"Added language metadata '{language}' to uploaded document: {file_name}")
-
-            was_indexed = self.vectordb._index_document(
-                documents,
-                semantic_chunk=self.config.SEMANTIC_CHUNKING
-            )
-
+            # Use the DocumentIndexer instance to index the document list
+            was_indexed = self.vector_store_instance.index_document(documents, semantic_chunk=self.config.SEMANTIC_CHUNKING)
             if was_indexed:
                 self.bot.reply_to(message, f"PDF '{file_name}' uploaded and indexed successfully.")
             else:
-                self.bot.reply_to(message, f"PDF '{file_name}' was not indexed (possibly already exists in the database).")
+                self.bot.reply_to(message, f"PDF '{file_name}' was not indexed (possibly already exists in the database or an error occurred).")
 
         except Exception as e:
             logger.error(f"Error handling document upload from user {user_id}: {str(e)}", exc_info=True)
@@ -255,7 +250,7 @@ class TelegramBotApp:
 
         logger.info(f"Received message from user {user_id}: '{message.text[:100]}...'")
         try:
-            # Process the message using the handler (which might invoke the agent or query directly)            
+            # Process the message using the handler (which might invoke the agent or query directly)
             response_text = self.handler.process_message(message, user_lang)
 
             self.send_response(message, user_id, response_text)
@@ -317,8 +312,13 @@ if __name__ == "__main__":
         vectordb = vector_store_instance.get_vectordb() # Get the db instance after init
         logger.info("VectorStore initialized.")
 
-        # --- Index data directory on startup ---        
-        vector_store_instance.index_directory(DATA_DIRECTORY)        
+        # --- Index data directory on startup ---
+        # Instantiate FileManager and DocumentIndexer
+        file_manager_instance = FileManager()
+        document_indexer_instance = DocumentIndexer(vector_store_instance=vector_store_instance, file_manager_instance=file_manager_instance)
+
+        # Call index_directory on the DocumentIndexer instance
+        document_indexer_instance.index_directory(DATA_DIRECTORY)
         # --- End Indexing ---
 
         # Log the final state of indexed metadata after potential indexing
@@ -334,12 +334,13 @@ if __name__ == "__main__":
         agent = build_agent(vectordb=vectordb, model_name=config.LLM_MODEL_NAME)
         logger.info("RAG agent initialized successfully")
 
-        # Initialize message handler (for non-command messages)
-        # Pass the agent instance to the handler
+        # Initialize message handler (for non-command messages)        
         handler = MessageHandler(agent=agent, config=config)
+        pdf_processor = PdfProcessor() # Initialize PDF processor
 
-        # Create an instance of the TelegramBotApp and run it
-        bot_app = TelegramBotApp(config=config, vectordb=vectordb, agent=agent, handler=handler)
+        # Create an instance of the TelegramBotApp and run it        
+        bot_app = TelegramBotApp(config=config, vector_store_instance=vector_store_instance, agent=agent, 
+                                 handler=handler, pdf_processor=pdf_processor)
         bot_app.run()
 
     except Exception as e:

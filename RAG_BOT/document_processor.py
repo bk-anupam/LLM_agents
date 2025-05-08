@@ -80,7 +80,7 @@ class DocumentProcessor:
         return texts
 
     def semantic_chunking(self, documents, model_name="sentence-transformers/all-MiniLM-L6-v2",
-                          chunk_size=128):
+                          chunk_size=1000, chunk_overlap=0):
         """
         Performs semantic chunking on the input documents using a sentence transformer model.
         Args:
