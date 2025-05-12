@@ -22,16 +22,18 @@ from RAG_BOT.utils import detect_document_language
 from RAG_BOT.file_manager import FileManager 
 from RAG_BOT.document_indexer import DocumentIndexer 
 from RAG_BOT.pdf_processor import PdfProcessor
+from RAG_BOT.htm_processor import HtmProcessor # Added import
 
 
 class TelegramBotApp:
     def __init__(self, config: Config, vector_store_instance: VectorStore, agent, 
-                 handler: MessageHandler, pdf_processor: PdfProcessor=None):
+                 handler: MessageHandler, pdf_processor: PdfProcessor = None, htm_processor: HtmProcessor = None):
         # Initialize Flask app
         self.app = Flask(__name__)
         self.config = config
         self.vector_store_instance = vector_store_instance
-        self.pdf_processor = pdf_processor or PdfProcessor() # Use provided or default processor
+        self.pdf_processor = pdf_processor or PdfProcessor()
+        self.htm_processor = htm_processor or HtmProcessor()
 
         # Use injected dependencies
         self.vectordb = vector_store_instance.get_vectordb()
@@ -189,6 +191,70 @@ class TelegramBotApp:
         self.bot.reply_to(message, reply_text)
 
 
+    def _cleanup_uploaded_file(self, file_path, processed_successfully):
+        """Handles cleanup of uploaded files after processing."""
+        if processed_successfully and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                logger.info(f"Successfully processed and removed '{file_path}' from uploads directory.")
+            except OSError as e:
+                logger.error(f"Error removing processed file '{file_path}' from uploads: {e}")
+        elif not processed_successfully and os.path.exists(file_path):
+            logger.info(f"File '{file_path}' was not successfully processed/indexed and will remain in the uploads directory.")
+        elif not os.path.exists(file_path) and processed_successfully:
+            logger.warning(f"Attempted to remove '{file_path}', but it was already deleted (or never saved properly).")
+
+    def _determine_file_name(self, message, file_ext, default_doc_name):
+        """Determines the correct file name for the uploaded document."""
+        original_file_name = message.document.file_name
+        file_name = original_file_name or default_doc_name
+        # Ensure the filename has the correct extension if it was defaulted
+        if not file_name.lower().endswith(file_ext) and original_file_name is None:
+            file_name = os.path.splitext(file_name)[0] + file_ext
+        return file_name
+
+    def _process_document_metadata(self, message: Message):
+        """
+        Determines file extension, default name, and processing mime type
+        based on the uploaded document's mime type and filename.
+        Returns a tuple: (file_ext, default_doc_name, processing_mime_type)
+        Raises ValueError if the file type is unsupported.
+        """
+        mime_type = message.document.mime_type
+        file_id = message.document.file_id
+        original_file_name = message.document.file_name
+
+        file_ext = None
+        processing_mime_type = mime_type # Default to original mime type
+
+        if mime_type == 'application/pdf':
+            file_ext = ".pdf"
+            default_doc_name = f"doc_{file_id}.pdf"
+        elif mime_type in ['text/html', 'application/xhtml+xml']:
+            file_ext = ".htm"
+            default_doc_name = f"doc_{file_id}.htm"
+        elif mime_type == 'application/octet-stream':
+             # If generic binary, try to determine type from file name
+             if original_file_name:
+                 name, ext = os.path.splitext(original_file_name)
+                 if ext.lower() in ['.htm', '.html']:
+                     file_ext = ".htm"
+                     default_doc_name = original_file_name
+                     processing_mime_type = 'text/html' # Treat as html for processing
+                 elif ext.lower() == '.pdf':
+                     file_ext = ".pdf"
+                     default_doc_name = original_file_name
+                     processing_mime_type = 'application/pdf' # Treat as pdf for processing
+             
+             if file_ext is None: # If still no specific type determined
+                 raise ValueError(f"Unsupported file type or unable to determine type from '{original_file_name or 'uploaded file'}'.")
+
+        else: # Handle other explicit unsupported mime types
+            raise ValueError(f"Unsupported file type ({mime_type}).")
+
+        return file_ext, default_doc_name, processing_mime_type
+
+
     # --- Document Upload Handling (Consider if needed with startup indexing) ---
     def handle_document(self, message: Message):
         """
@@ -196,47 +262,74 @@ class TelegramBotApp:
         Detects language using utility function.
         """
         user_id = message.from_user.id
-        if not message.document or not message.document.mime_type == 'application/pdf':
-            self.bot.reply_to(message, "Please upload a PDF document.")
+        if not message.document:
+            self.bot.reply_to(message, "No document provided.")
             return
 
-        file_name = message.document.file_name or f"doc_{message.document.file_id}.pdf"
-        logger.info(f"User {user_id} uploaded PDF: {file_name} (file_id: {message.document.file_id})")
-
+        file_id = message.document.file_id
+        mime_type = message.document.mime_type # Keep original mime_type for logging initially
+        logger.info(f"Received document from user mime_type: {mime_type} (file_id: {file_id})")
+        file_path = None # Initialize file_path
+        documents = [] # Initialize documents list
+        processed_successfully = False
         try:
-            file_info = self.bot.get_file(message.document.file_id)
-            downloaded_file = self.bot.download_file(file_info.file_path)
-            # Define a specific upload directory (maybe configurable)
-            upload_dir = os.path.join(project_root, "uploads") # Example path
+            # Use the new helper method to process metadata
+            file_ext, default_doc_name, processing_mime_type = self._process_document_metadata(message)
+            file_name = self._determine_file_name(message, file_ext, default_doc_name)
+            logger.info(f"User {user_id} uploaded {mime_type} (processed as {processing_mime_type}): {file_name}")
+            # Define a specific upload directory
+            upload_dir = os.path.join(project_root, "uploads")
             os.makedirs(upload_dir, exist_ok=True)
-            pdf_path = os.path.join(upload_dir, file_name)
-
-            with open(pdf_path, 'wb') as new_file:
+            file_path = os.path.join(upload_dir, file_name)                    
+            file_info = self.bot.get_file(file_id)
+            downloaded_file = self.bot.download_file(file_info.file_path)
+            with open(file_path, 'wb') as new_file:
                 new_file.write(downloaded_file)
-            logger.info(f"PDF saved to: {pdf_path}")
-            # --- Updated Indexing Logic ---
-            # 1. Load the document using the processor from VectorStore
-            documents = self.pdf_processor.load_pdf(pdf_path)
+            logger.info(f"Document saved to: {file_path}")
+            # Load the document using the appropriate processor based on processing_mime_type
+            if processing_mime_type == 'application/pdf':
+                documents = self.pdf_processor.load_pdf(file_path)
+            elif processing_mime_type in ['text/html', 'application/xhtml+xml']:
+                # HtmProcessor.load_htm returns a single Document or None
+                doc = self.htm_processor.load_htm(file_path)
+                if doc:
+                    documents.append(doc)
+            
             if not documents:
-                logger.warning(f"No documents loaded from PDF: {pdf_path}. Skipping indexing.")
-                self.bot.reply_to(message, f"Could not load content from PDF '{file_name}'.")
+                logger.warning(f"No documents loaded from: {file_path}. Skipping indexing.")
+                self.bot.reply_to(message, f"Could not load content from '{file_name}'.")
+                # File remains in uploads dir if loading fails
                 return
-            # 2. Detect language using the utility function
-            language = detect_document_language(pdf_path) # Defaults to 'en' on failure
-            # 3. Add detected language metadata
+
+            # Detect language using the utility function with loaded documents
+            language = detect_document_language(documents, file_name_for_logging=file_name)             
+            # Add detected language metadata
             for doc in documents:
                 doc.metadata['language'] = language
-            logger.debug(f"Added language metadata '{language}' to uploaded document: {file_name}")
-            # Use the DocumentIndexer instance to index the document list
-            was_indexed = self.vector_store_instance.index_document(documents, semantic_chunk=self.config.SEMANTIC_CHUNKING)
+            logger.info(f"Added language metadata '{language}' to uploaded document: {file_name}")
+            # Index the document list
+            was_indexed = self.vector_store_instance.index_document(documents, semantic_chunk=self.config.SEMANTIC_CHUNKING)                        
             if was_indexed:
-                self.bot.reply_to(message, f"PDF '{file_name}' uploaded and indexed successfully.")
+                self.bot.reply_to(message, f"Document '{file_name}' uploaded and indexed successfully.")
+                processed_successfully = True
             else:
-                self.bot.reply_to(message, f"PDF '{file_name}' was not indexed (possibly already exists in the database or an error occurred).")
+                self.bot.reply_to(message, f"Document '{file_name}' was not indexed (possibly already exists or an error occurred).")
+                # File remains in uploads dir if indexing fails or it's a duplicate
 
+        except ValueError as ve: # Catch unsupported file type errors from _process_document_metadata
+             logger.warning(f"Unsupported file type for user {user_id}: {ve}")
+             self.bot.reply_to(message, str(ve))
+             # No file was saved in this case, so no cleanup needed
+             return
         except Exception as e:
-            logger.error(f"Error handling document upload from user {user_id}: {str(e)}", exc_info=True)
-            self.bot.reply_to(message, "Sorry, I encountered an error processing your document.")
+            logger.error(f"Error handling document upload from user {user_id} for {file_name}: {str(e)}", exc_info=True)
+            self.bot.reply_to(message, "Sorry, I encountered an error processing your document.")            
+        finally:
+            # Delete the file from upload_dir ONLY if processed and indexed successfully
+            # Ensure file_path is not None before attempting cleanup
+            if file_path:
+                self._cleanup_uploaded_file(file_path, processed_successfully)
+
     # --- End Document Upload Handling ---
 
 
@@ -247,12 +340,10 @@ class TelegramBotApp:
         user_id = message.from_user.id
         # Get user's preferred language from session, default to 'en' if not set
         user_lang = self.config.USER_SESSIONS.get(user_id, {}).get('language', 'en')
-
         logger.info(f"Received message from user {user_id}: '{message.text[:100]}...'")
         try:
             # Process the message using the handler (which might invoke the agent or query directly)
             response_text = self.handler.process_message(message, user_lang)
-
             self.send_response(message, user_id, response_text)
         except Exception as e:
             logger.error(f"Error processing message from user {user_id}: {str(e)}", exc_info=True)
@@ -337,10 +428,11 @@ if __name__ == "__main__":
         # Initialize message handler (for non-command messages)        
         handler = MessageHandler(agent=agent, config=config)
         pdf_processor = PdfProcessor() # Initialize PDF processor
+        htm_processor = HtmProcessor() # Initialize HTM processor
 
         # Create an instance of the TelegramBotApp and run it        
         bot_app = TelegramBotApp(config=config, vector_store_instance=vector_store_instance, agent=agent, 
-                                 handler=handler, pdf_processor=pdf_processor)
+                                 handler=handler, pdf_processor=pdf_processor, htm_processor=htm_processor) # Pass htm_processor
         bot_app.run()
 
     except Exception as e:

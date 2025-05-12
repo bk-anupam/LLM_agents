@@ -55,7 +55,9 @@ final_answer_prompt_system: |
   with no other text before or after the JSON block.
   CRITICAL INSTRUCTION: Your response MUST be ONLY the following JSON structure.
   Do NOT include any introductory text, explanations, apologies, or any characters
-  outside of the JSON block itself. Output ONLY the JSON.
+  outside of the JSON block itself. Output ONLY the JSON. Ensure the entire JSON output, 
+  including all string values, is strictly UTF-8 encoded. Do not use non-standard characters or escape sequences 
+  for Hindi letters unless explicitly part of the JSON string syntax.
   ```json
   {{
     "answer": "<your answer>"
@@ -97,7 +99,8 @@ language_instructions:
   final_answer_system:
     en: "" # Empty for English (default)
     hi: |
-      IMPORTANT: Your answer should always be ONLY in the HINDI language.
+      IMPORTANT: Your answer should always be ONLY in the HINDI language. Generate all Hindi text using standard Devanagari 
+      Unicode characters.
 
 # User-facing messages (confirmations, errors, etc.)
 user_messages:

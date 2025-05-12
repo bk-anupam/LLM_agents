@@ -5,8 +5,8 @@ import json
 from RAG_BOT.logger import logger
 import os
 from langdetect import detect, LangDetectException
-from RAG_BOT.pdf_processor import PdfProcessor
-from RAG_BOT.htm_processor import HtmProcessor
+from langchain_core.documents import Document # Added for type hinting
+from typing import List # Added for type hinting
 
 
 def parse_json_answer(content: str) -> Optional[dict]:
@@ -68,65 +68,50 @@ def parse_json_answer(content: str) -> Optional[dict]:
         error_snippet_oneline = error_snippet.replace('\n', '\\n')
         logger.error(f"Failed to parse JSON: {e}. Near char {e.pos}: '{error_snippet_oneline}'")
         # Log the full content only at DEBUG level to avoid flooding logs
-        logger.debug(f"Full content that failed parsing:\n{content}")
+        logger.error(f"Full content that failed parsing:\n{content}")
         return None
     except Exception as e:
         logger.error(f"An unexpected error occurred during JSON parsing: {e}", exc_info=True)
-        logger.debug(f"Full content during unexpected error:\n{content}")
+        logger.error(f"Full content during unexpected error:\n{content}")
         return None
 
 
-def detect_document_language(file_path: str, default_lang: str = 'en') -> str:
+def detect_document_language(documents: List[Document], file_name_for_logging: str = "uploaded document", 
+                             default_lang: str = 'en') -> str:
     """
-    Detects the language of a PDF or HTM document.
+    Detects the language of the content within a list of Document objects.
 
     Args:
-        file_path: The path to the document file.
+        documents: A list of Langchain Document objects.
+        file_name_for_logging: The name of the file (for logging purposes).
         default_lang: The language code to return if detection fails.
 
     Returns:
         The detected language code (e.g., 'en', 'hi') or the default language.
     """
-    logger.debug(f"Attempting to detect language for file: {file_path}")
-    documents = []
+    logger.debug(f"Attempting to detect language for: {file_name_for_logging}")
     try:
-        file_ext = os.path.splitext(file_path)[1].lower()
-
-        if file_ext == '.pdf':
-            processor = PdfProcessor()
-            documents = processor.load_pdf(file_path)
-        elif file_ext == '.htm':
-            processor = HtmProcessor()
-            doc = processor.load_htm(file_path)
-            if doc:
-                documents.append(doc)
-        else:
-            logger.warning(f"Unsupported file type for language detection: {file_ext}. Defaulting to '{default_lang}'.")
-            return default_lang
-
         if not documents:
-            logger.warning(f"No content loaded from '{file_path}'. Cannot detect language. Defaulting to '{default_lang}'.")
+            logger.warning(f"No documents provided for '{file_name_for_logging}'. Cannot detect language. Defaulting to '{default_lang}'.")
             return default_lang
-
-        # Concatenate content from first few pages/docs for detection
-        sample_text = " ".join([doc.page_content for doc in documents[:5]]).strip() # Use first 5 docs/pages
-
+        # Concatenate content from first few documents/pages for detection
+        # Using page_content attribute of Langchain Document
+        sample_text = " ".join([doc.page_content for doc in documents[:5]]).strip()
         if not sample_text:
-            logger.warning(f"File '{file_path}' contains no text to detect language from. Defaulting to '{default_lang}'.")
+            logger.warning(f"Document(s) '{file_name_for_logging}' contain no text to detect language from. Defaulting to '{default_lang}'.")
             return default_lang
 
         detected_lang = detect(sample_text)
-        logger.info(f"Detected language '{detected_lang}' for file: {os.path.basename(file_path)}")
+        logger.info(f"Detected language '{detected_lang}' for: {file_name_for_logging}")
         return detected_lang
-
     except LangDetectException as lang_err:
-        logger.warning(f"Could not detect language for file '{os.path.basename(file_path)}': {lang_err}. Defaulting to '{default_lang}'.")
+        logger.warning(f"Could not detect language for '{file_name_for_logging}': {lang_err}. Defaulting to '{default_lang}'.")
         return default_lang
     except Exception as e:
-        logger.error(f"Error during language detection for '{file_path}': {e}", exc_info=True)
+        logger.error(f"Error during language detection for '{file_name_for_logging}': {e}", exc_info=True)
         return default_lang
-    
-    
+
+
 # Example usage (can be removed or kept for testing)
 if __name__ == '__main__':
     test_cases = [
