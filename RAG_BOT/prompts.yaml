@@ -51,16 +51,18 @@ final_answer_prompt_system: |
   {context}
 
   ---
-  IMPORTANT: Provide your final answer strictly in the following JSON format, 
-  with no other text before or after the JSON block.
-  CRITICAL INSTRUCTION: Your response MUST be ONLY the following JSON structure.
-  Do NOT include any introductory text, explanations, apologies, or any characters
-  outside of the JSON block itself. Output ONLY the JSON. Ensure the entire JSON output, 
-  including all string values, is strictly UTF-8 encoded. Do not use non-standard characters or escape sequences 
-  for Hindi letters unless explicitly part of the JSON string syntax.
+  CRITICAL INSTRUCTION: 
+  Your entire response MUST be a single, valid JSON object.
+  Do NOT include any introductory text, explanations, apologies, or any characters 
+  whatsoever before or after the JSON block. Output ONLY the JSON. 
+  The JSON object must have a single key "answer".The value of the "answer" key should be 
+  your response to the user's question, formatted according to the language and persona 
+  instructions provided above. Ensure the entire JSON output, including all string values, 
+  is strictly UTF-8 encoded.
+  Example of the required JSON structure:
   ```json
   {{
-    "answer": "<your answer>"
+    "answer": "<Your carefully crafted answer text in the specified language and style>"
   }}
   ```
 
@@ -95,12 +97,12 @@ language_instructions:
   bk_persona:
     en: "" # Empty for English (default)
     hi: |
-      Your answer should be in Hindi.
+      Your answer should always ONLY be in Hindi language.
   final_answer_system:
     en: "" # Empty for English (default)
     hi: |
       IMPORTANT: Your answer should always be ONLY in the HINDI language. Generate all Hindi text using standard Devanagari 
-      Unicode characters.
+      Unicode characters. 
 
 # User-facing messages (confirmations, errors, etc.)
 user_messages:

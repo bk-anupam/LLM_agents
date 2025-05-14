@@ -112,7 +112,7 @@ class Config:
         # For now, just appending. Consider placement relative to JSON format instruction.
         # Let's append it before the JSON format instruction for clarity.
         # Find the position of 'IMPORTANT: Provide your final answer...'
-        insertion_point_str = "IMPORTANT: Provide your final answer strictly"
+        insertion_point_str = "CRITICAL INSTRUCTION:"
         insertion_point = base_template.find(insertion_point_str)
         if lang_instruction and insertion_point != -1:
              # Insert instruction before the JSON format part
