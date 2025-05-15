@@ -399,14 +399,20 @@ if __name__ == "__main__":
 
         # Instantiate the vector store instance
         logger.info("Initializing VectorStore...")
-        vector_store_instance = VectorStore(config.VECTOR_STORE_PATH)
+        # Pass the config instance to VectorStore
+        vector_store_instance = VectorStore(persist_directory=config.VECTOR_STORE_PATH, config=config)
         vectordb = vector_store_instance.get_vectordb() # Get the db instance after init
         logger.info("VectorStore initialized.")
 
         # --- Index data directory on startup ---
         # Instantiate FileManager and DocumentIndexer
-        file_manager_instance = FileManager()
-        document_indexer_instance = DocumentIndexer(vector_store_instance=vector_store_instance, file_manager_instance=file_manager_instance)
+        # Pass the config instance
+        file_manager_instance = FileManager(config=config)
+        document_indexer_instance = DocumentIndexer(
+            vector_store_instance=vector_store_instance,
+            file_manager_instance=file_manager_instance,
+            config=config
+        )
 
         # Call index_directory on the DocumentIndexer instance
         document_indexer_instance.index_directory(DATA_DIRECTORY)
@@ -422,7 +428,7 @@ if __name__ == "__main__":
         if vectordb is None:
              logger.error("VectorDB instance is None after initialization and indexing. Cannot build agent.")
              exit(1)
-        agent = build_agent(vectordb=vectordb, model_name=config.LLM_MODEL_NAME)
+        agent = build_agent(vectordb=vectordb, config_instance=config, model_name=config.LLM_MODEL_NAME)
         logger.info("RAG agent initialized successfully")
 
         # Initialize message handler (for non-command messages)        

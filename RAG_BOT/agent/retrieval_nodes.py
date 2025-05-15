@@ -16,11 +16,11 @@ from RAG_BOT.logger import logger
 from RAG_BOT.agent.state import AgentState
 
 
-def rerank_context_node(state: AgentState, reranker_model: CrossEncoder):
+def rerank_context_node(state: AgentState, reranker_model: CrossEncoder, app_config: Config):
     """
     Reranks the initially retrieved documents based on the current query.
     Updates the state with the final, concatenated context string.
-    """
+    """    
     logger.info("--- Executing Rerank Context Node ---")
     current_query = state.get('current_query')
     logger.info(f"Current query for reranking: '{current_query}'")
@@ -63,13 +63,13 @@ def rerank_context_node(state: AgentState, reranker_model: CrossEncoder):
     pairs = [[current_query, doc] for doc in retrieved_docs_artifact]
     try:
         # Get scores from the cross-encoder
-        scores = reranker_model.predict(pairs)
-        logger.info(f"Reranking scores obtained (Top {Config.RERANK_TOP_N}): {scores[:Config.RERANK_TOP_N]}")
+        scores = reranker_model.predict(pairs)        
+        logger.info(f"Reranking scores obtained (Top {app_config.RERANK_TOP_N}): {scores[:app_config.RERANK_TOP_N]}")
         # Combine docs with scores and sort
         scored_docs = list(zip(scores, retrieved_docs_artifact))
         scored_docs.sort(key=itemgetter(0), reverse=True)
         # Select top N documents based on config
-        reranked_docs = [doc for score, doc in scored_docs[:Config.RERANK_TOP_N]]
+        reranked_docs = [doc for score, doc in scored_docs[:app_config.RERANK_TOP_N]]
         logger.info(f"Selected top {len(reranked_docs)} documents after reranking.")
         # Concatenate the final context
         final_context = "\n\n".join(reranked_docs)

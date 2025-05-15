@@ -30,34 +30,45 @@ def load_prompts(file_path):
 
 class Config:
     # Load prompts from YAML file
-    PROMPTS = load_prompts(PROMPTS_FILE_PATH)
-    # Telegram Bot Token
-    TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-    # For tracking conversation history
-    USER_SESSIONS = {}
-    # Optional: API keys for external services
-    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', None)
-    VECTOR_STORE_PATH = os.environ.get('VECTOR_STORE_PATH', None)
-    DATA_PATH = os.environ.get('DATA_PATH', None)
-    INDEXED_DATA_PATH = os.environ.get('INDEXED_DATA_PATH', None)
-    WEBHOOK_URL = os.environ.get('WEBHOOK_URL', None)
-    PORT = int(os.environ.get('PORT', 5000))
-    LLM_MODEL_NAME = os.environ.get('LLM_MODEL_NAME', 'gemini-2.5-flash-preview-04-17')
-    # LANGUAGE = os.environ.get('LANGUAGE', 'en') # Removed global language setting
-    EMBEDDING_MODEL_NAME = os.environ.get('EMBEDDING_MODEL_NAME', 'all-MiniLM-L6-v2')
-    RERANKER_MODEL_NAME = os.environ.get('RERANKER_MODEL_NAME', 'cross-encoder/ms-marco-MiniLM-L-6-v2')
-    SEMANTIC_CHUNKING = False
-    TEMPERATURE = 0
-    CONVERSATION_HISTORY_LIMIT = 10    
-    JUDGE_LLM_MODEL_NAME = "gemini-2.0-flash"    
-    K = 10 # Initial retrieval K for non-reranking flow (can be kept or removed if INITIAL_RETRIEVAL_K is always used)
-    SEARCH_TYPE = "similarity"
-    SCORE_THRESHOLD = 0.5
-    # Reranking specific config
-    INITIAL_RETRIEVAL_K = 40 # Number of docs to fetch initially for reranking    
-    RERANK_TOP_N = 10 # Number of docs to keep after reranking
-    CHUNK_SIZE = 1000 # Size of chunks for semantic chunking
-    CHUNK_OVERLAP = 100 # Overlap size for semantic chunking
+    PROMPTS = load_prompts(PROMPTS_FILE_PATH) # Stays as class variable
+
+    def __init__(self, **overrides):
+        self._overrides = overrides
+
+        # Paths and simple values become instance attributes
+        self.TELEGRAM_BOT_TOKEN = self._get_config_value('TELEGRAM_BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN'))
+        self.GEMINI_API_KEY = self._get_config_value('GEMINI_API_KEY', os.environ.get('GEMINI_API_KEY', None))
+        self.VECTOR_STORE_PATH = self._get_config_value('VECTOR_STORE_PATH', os.environ.get('VECTOR_STORE_PATH', None))
+        self.DATA_PATH = self._get_config_value('DATA_PATH', os.environ.get('DATA_PATH', None))
+        self.INDEXED_DATA_PATH = self._get_config_value('INDEXED_DATA_PATH', os.environ.get('INDEXED_DATA_PATH', None))
+        self.WEBHOOK_URL = self._get_config_value('WEBHOOK_URL', os.environ.get('WEBHOOK_URL', None))
+        self.PORT = self._get_config_value('PORT', int(os.environ.get('PORT', 5000)))
+        self.LLM_MODEL_NAME = self._get_config_value('LLM_MODEL_NAME', os.environ.get('LLM_MODEL_NAME', 'gemini-2.5-flash-preview-04-17'))
+        self.EMBEDDING_MODEL_NAME = self._get_config_value('EMBEDDING_MODEL_NAME', os.environ.get('EMBEDDING_MODEL_NAME', 'all-MiniLM-L6-v2'))
+        self.RERANKER_MODEL_NAME = self._get_config_value('RERANKER_MODEL_NAME', os.environ.get('RERANKER_MODEL_NAME', 'cross-encoder/ms-marco-MiniLM-L-6-v2'))
+        
+        # Handle boolean conversion for SEMANTIC_CHUNKING if it could come from env as string
+        default_semantic_chunking_str = os.environ.get('SEMANTIC_CHUNKING', 'False')
+        default_semantic_chunking = default_semantic_chunking_str.lower() in ('true', '1', 't')
+        self.SEMANTIC_CHUNKING = self._get_config_value('SEMANTIC_CHUNKING', default_semantic_chunking)
+        
+        self.TEMPERATURE = self._get_config_value('TEMPERATURE', int(os.environ.get('TEMPERATURE', 0)))
+        self.CONVERSATION_HISTORY_LIMIT = self._get_config_value('CONVERSATION_HISTORY_LIMIT', int(os.environ.get('CONVERSATION_HISTORY_LIMIT', 10)))
+        self.JUDGE_LLM_MODEL_NAME = self._get_config_value('JUDGE_LLM_MODEL_NAME', os.environ.get('JUDGE_LLM_MODEL_NAME', "gemini-2.0-flash"))
+        self.K = self._get_config_value('K', int(os.environ.get('K', 10)))
+        self.SEARCH_TYPE = self._get_config_value('SEARCH_TYPE', os.environ.get('SEARCH_TYPE', "similarity"))
+        self.SCORE_THRESHOLD = self._get_config_value('SCORE_THRESHOLD', float(os.environ.get('SCORE_THRESHOLD', 0.5)))
+        self.INITIAL_RETRIEVAL_K = self._get_config_value('INITIAL_RETRIEVAL_K', int(os.environ.get('INITIAL_RETRIEVAL_K', 40)))
+        self.RERANK_TOP_N = self._get_config_value('RERANK_TOP_N', int(os.environ.get('RERANK_TOP_N', 10)))
+        self.CHUNK_SIZE = self._get_config_value('CHUNK_SIZE', int(os.environ.get('CHUNK_SIZE', 1000)))
+        self.CHUNK_OVERLAP = self._get_config_value('CHUNK_OVERLAP', int(os.environ.get('CHUNK_OVERLAP', 100)))
+
+        # For USER_SESSIONS, make it an instance variable for better isolation in tests
+        self.USER_SESSIONS = self._get_config_value('USER_SESSIONS', {})
+
+    def _get_config_value(self, key, default_value):
+        """Helper to get value from overrides or use default."""
+        return self._overrides.get(key, default_value)
 
     # --- Accessor methods for prompts (optional but good practice) ---
     @classmethod
@@ -109,9 +120,8 @@ class Config:
         base_template = cls.PROMPTS.get('final_answer_prompt_system', '')
         lang_instruction = cls.get_final_answer_language_instruction(language_code) # Fetch dynamic instruction based on arg
         # Append the instruction. Add logic if needed to insert it cleanly.
-        # For now, just appending. Consider placement relative to JSON format instruction.
-        # Let's append it before the JSON format instruction for clarity.
-        # Find the position of 'IMPORTANT: Provide your final answer...'
+        # For now, just appending. Consider placement relative to CRITICAL INSTRUCTION:.        
+        # Find the position of 'CRITICAL INSTRUCTION:...'
         insertion_point_str = "CRITICAL INSTRUCTION:"
         insertion_point = base_template.find(insertion_point_str)
         if lang_instruction and insertion_point != -1:

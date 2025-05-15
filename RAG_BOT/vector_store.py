@@ -18,11 +18,12 @@ sys.path.insert(0, project_root)
 from RAG_BOT.logger import logger
 from RAG_BOT.config import Config
 from RAG_BOT.document_processor import DocumentProcessor
+from typing import Optional
 
 
 class VectorStore:
-    def __init__(self, persist_directory=None):
-        self.config = Config()
+    def __init__(self, persist_directory=None, config: Optional[Config] = None):
+        self.config = config or Config()
         self.persist_directory = persist_directory or self.config.VECTOR_STORE_PATH        
         # Initialize the embedding model once.
         self.embeddings = HuggingFaceEmbeddings(model_name=self.config.EMBEDDING_MODEL_NAME)

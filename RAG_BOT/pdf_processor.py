@@ -38,7 +38,8 @@ class PdfProcessor(DocumentProcessor):
         all_documents = []
         current_date = None
         current_is_avyakt = None # Track avyakt status similarly
-
+        # Extract filename from the path for the source metadata
+        filename = os.path.basename(pdf_path)
         logger.info(f"Processing {len(pages)} pages from {pdf_path}...")
 
         for i, page in enumerate(pages):
@@ -77,6 +78,7 @@ class PdfProcessor(DocumentProcessor):
             elif "is_avyakt" in metadata:
                 del metadata["is_avyakt"]
 
+            metadata["source"] = filename 
             # Create a new Document object with updated metadata
             # Using page_text ensures we have the content, metadata has page number etc.
             processed_doc = Document(page_content=page_text, metadata=metadata)

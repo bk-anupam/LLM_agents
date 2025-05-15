@@ -14,8 +14,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.insert(0, project_root)
 
+from RAG_BOT.document_indexer import DocumentIndexer
+from RAG_BOT.file_manager import FileManager
 from RAG_BOT.vector_store import VectorStore
-# Updated imports for build_agent and AgentState
 from RAG_BOT.agent.graph_builder import build_agent
 from RAG_BOT.agent.state import AgentState
 from RAG_BOT.logger import logger
@@ -26,13 +27,25 @@ class TestIntegration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Setup method that is called once before all tests in the class."""
-        cls.config = Config()
         cls.delete_exisiting_test_vector_store()
         logger.info("Deleted existing test vector store.")
-        cls.test_vector_store = cls.setup_test_environment()
+
+        # Define test-specific paths
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        cls.test_data_dir = os.path.join(current_dir, "..", "data")
+        cls.test_vector_store_dir = os.path.join(current_dir, "..", "test_vector_store")
+        cls.test_indexed_data_dir = os.path.join(current_dir, "..", "indexed_test_data") # For moved files
+
+        # Create a test-specific Config instance
+        cls.config = Config(
+            DATA_PATH=cls.test_data_dir,
+            VECTOR_STORE_PATH=cls.test_vector_store_dir,
+            INDEXED_DATA_PATH=cls.test_indexed_data_dir
+        )
+        cls.test_vector_store = cls.setup_test_environment(cls.config)
         cls.vectordb = cls.test_vector_store.get_vectordb()
         # Build agent once for the class
-        cls.agent = build_agent(vectordb=cls.vectordb, model_name=cls.config.LLM_MODEL_NAME)
+        cls.agent = build_agent(vectordb=cls.vectordb, config_instance=cls.config, model_name=cls.config.LLM_MODEL_NAME)
 
 
     @classmethod
@@ -50,28 +63,32 @@ class TestIntegration(unittest.TestCase):
 
 
     @classmethod
-    def setup_test_environment(cls):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        pdf_dir = os.path.join(current_dir, "..", "data")
-        test_vector_store_dir = os.path.join(current_dir, "..", "test_vector_store")
-        os.makedirs(test_vector_store_dir, exist_ok=True) # Ensure dir exists
-        logger.info(f"Setting up test vector store in: {test_vector_store_dir}")
-        # Create a test vector store and index sample PDFs
-        test_vector_store = VectorStore(persist_directory=test_vector_store_dir)
-        pdf_files = [
-            os.path.join(pdf_dir, f)
-            for f in os.listdir(pdf_dir)
-            if f.endswith(".pdf")
-        ]
-        if not pdf_files:
-             logger.warning(f"No PDF files found in {pdf_dir} for indexing.")
-             return test_vector_store # Return empty store if no PDFs
+    def setup_test_environment(cls, test_config: Config):
+        os.makedirs(test_config.VECTOR_STORE_PATH, exist_ok=True) # Ensure dir exists
+        os.makedirs(test_config.INDEXED_DATA_PATH, exist_ok=True) # Ensure indexed data dir exists
+        logger.info(f"Setting up test vector store in: {test_config.VECTOR_STORE_PATH}")
+        
+        # 1. Initialize VectorStore
+        # Pass the test_config and explicit persist_directory
+        test_vector_store = VectorStore(persist_directory=None, config=test_config)
+        logger.info("Test VectorStore initialized.")        
 
-        for pdf_file in pdf_files:
-            logger.info(f"Indexing test file: {pdf_file}")
-            test_vector_store.build_index(pdf_file, semantic_chunk=cls.config.SEMANTIC_CHUNKING)
-        logger.info("Test vector store setup complete.")
+        # Pass the test_config
+        test_file_manager = FileManager(config=test_config)
+        # 3. Initialize DocumentIndexer
+        # Pass the test_config
+        document_indexer = DocumentIndexer(
+            vector_store_instance=test_vector_store,
+            file_manager_instance=test_file_manager,
+            config=test_config
+        )
+        logger.info("DocumentIndexer initialized.")        
+        logger.info(f"Indexing documents from test data directory: {test_config.DATA_PATH}")
+        document_indexer.index_directory(base_data_path=test_config.DATA_PATH, move_indexed_files=False)
+        logger.info("Test data indexing complete.")
+        # Return the initialized VectorStore instance
         return test_vector_store
+
 
     def _run_agent(self, query: str) -> AgentState:
         """Helper method to run the agent with a query."""
@@ -89,22 +106,52 @@ class TestIntegration(unittest.TestCase):
         if not hasattr(self, 'vectordb') or self.vectordb is None:
             self.skipTest("VectorDB instance not available.")
         try:
-            documents_dict = self.vectordb.get(limit=1) # Fetch just one to confirm collection exists
-            # Check if the collection is empty or exists
+            # Retrieve all documents (or a sufficient number to cover test files)
+            # In a real large index, you might filter or query, but for a test index, getting all is fine.
+            documents_dict = self.vectordb.get(include=['metadatas', 'documents'])
+
             self.assertIsNotNone(documents_dict, "VectorDB get() returned None.")
             # Check if 'ids' list exists and is not empty
             self.assertIn("ids", documents_dict)
             self.assertIsInstance(documents_dict["ids"], list)
-            # We only check if *any* document was indexed, as exact count depends on chunking
             self.assertGreater(len(documents_dict["ids"]), 0, "No documents were indexed.")
+            self.assertIn("metadatas", documents_dict)
+            self.assertIsInstance(documents_dict["metadatas"], list)
+            self.assertEqual(len(documents_dict["ids"]), len(documents_dict["metadatas"]), "Mismatch between IDs and metadatas count.")
+
+            indexed_metadatas = documents_dict["metadatas"]
+
+            # Check for specific documents and their metadata
+            # Assuming test data includes 'english/1969/1969-01-23.pdf' and 'hindi/1992/1992-09-24.htm'
+            # Note: Source metadata is typically just the filename, not the full path
+            english_pdf_indexed = False
+            hindi_htm_indexed = False
+
+            for metadata in indexed_metadatas:
+                source = metadata.get('source')
+                date = metadata.get('date')
+                language = metadata.get('language')
+                is_avyakt = metadata.get('is_avyakt') # This might be None if not Avyakt
+
+                if source == '1969-01-23.pdf':
+                    english_pdf_indexed = True
+                    self.assertEqual(date, '1969-01-23', f"Incorrect date for {source}: {date}")
+                    self.assertEqual(language, 'en', f"Incorrect language for {source}: {language}")
+                    self.assertTrue(is_avyakt, f"Incorrect is_avyakt for {source}: {is_avyakt}") 
+                elif source == '1992-09-24.htm':
+                    hindi_htm_indexed = True
+                    self.assertEqual(date, '1992-09-24', f"Incorrect date for {source}: {date}")
+                    self.assertEqual(language, 'hi', f"Incorrect language for {source}: {language}")
+                    self.assertTrue(is_avyakt, f"Incorrect is_avyakt for {source}: {is_avyakt}") 
+
         except Exception as e:
              # Catch potential errors if the collection doesn't exist yet
              self.fail(f"Failed to get documents from VectorDB: {e}")
 
 
-    def evaluate_response_with_llm(self, query: str, context: Optional[str], response: str) -> bool:
+    def evaluate_response_with_llm(self, query: str, context: Optional[str], response: str, test_config: Config = None) -> bool:
         """Uses an LLM to judge the quality of the agent's response."""
-        judge_llm = ChatGoogleGenerativeAI(model=Config.JUDGE_LLM_MODEL_NAME, temperature=0.0)
+        judge_llm = ChatGoogleGenerativeAI(model=test_config.JUDGE_LLM_MODEL_NAME, temperature=0.0)
         judge_prompt_template = Config.get_judge_prompt_template()
         # The judge prompt expects the raw response string, which includes the JSON structure
         judge_prompt = judge_prompt_template.format(
@@ -144,13 +191,17 @@ class TestIntegration(unittest.TestCase):
         self.assertIsNotNone(json_result, f"Final answer is not valid JSON: {final_answer_message.content}")
         self.assertIn("answer", json_result)
         # Make comparison case-insensitive and check for substring
-        self.assertIn("the ashes are to remind you of the stage", json_result["answer"].lower())
+        self.assertIn("the ashes are to remind you of the stage", json_result["answer"].lower())        
+        # --- Check Context in Final State ---        
+        self.assertIn("context", final_state, "Context missing from final state.")
+        context = final_state.get("context")
+        self.assertIsInstance(context, str, "Context in final state is not a string.")
 
 
     def test_agent_without_retrieval(self):
         """Tests the agent's ability to answer a general question without retrieval, in JSON."""
         # Query without JSON instruction
-        query = "What is the purpose of life?"
+        query = "How are you doing today?"
         final_state = self._run_agent(query)
         messages = final_state["messages"]
         self.assertGreater(len(messages), 1)
@@ -196,7 +247,7 @@ class TestIntegration(unittest.TestCase):
             if isinstance(msg, AIMessage) and msg.tool_calls and
             any(tc.get("name") == "retrieve_context" for tc in msg.tool_calls)
         )
-        self.assertGreaterEqual(tool_call_count, 1, "The 'retrieve_context' tool was not called.")
+        self.assertGreaterEqual(tool_call_count, 2, "The 'retrieve_context' tool was not called at least twice for retry.")
 
         # 3. Check the final answer format and content
         final_answer_message = messages[-1]
@@ -229,7 +280,7 @@ class TestIntegration(unittest.TestCase):
             if isinstance(msg, AIMessage) and msg.tool_calls and
             any(tc.get("name") == "retrieve_context" for tc in msg.tool_calls)
         ]
-        self.assertGreaterEqual(len(tool_calls), 1, "No tool call was made during retry logic.")
+        self.assertGreaterEqual(len(tool_calls), 2, "No tool call was made during retry logic.")
         # Check that the retry logic was invoked        
         self.assertTrue(final_state.get("retry_attempted"), "Agent state should indicate retry_attempted was True")
 
@@ -261,7 +312,7 @@ class TestIntegration(unittest.TestCase):
 
         # Evaluate the response using the LLM judge
         final_answer_content = final_state["messages"][-1].content
-        evaluation_result = self.evaluate_response_with_llm(query, context, final_answer_content)
+        evaluation_result = self.evaluate_response_with_llm(query, context, final_answer_content, test_config=self.config) 
         json_result = utils.parse_json_answer(final_answer_content)
         response_answer = json_result.get("answer", "")
         self.assertTrue(evaluation_result, f"LLM Judge evaluation failed for query '{query}'. Response: {response_answer}")
