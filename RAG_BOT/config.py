@@ -56,6 +56,7 @@ class Config:
         self.CONVERSATION_HISTORY_LIMIT = self._get_config_value('CONVERSATION_HISTORY_LIMIT', int(os.environ.get('CONVERSATION_HISTORY_LIMIT', 10)))
         self.JUDGE_LLM_MODEL_NAME = self._get_config_value('JUDGE_LLM_MODEL_NAME', os.environ.get('JUDGE_LLM_MODEL_NAME', "gemini-2.0-flash"))
         self.K = self._get_config_value('K', int(os.environ.get('K', 10)))
+        self.K_FALLBACK = self._get_config_value('K_FALLBACK', int(os.environ.get('K_FALLBACK', 10)))
         self.SEARCH_TYPE = self._get_config_value('SEARCH_TYPE', os.environ.get('SEARCH_TYPE', "similarity"))
         self.SCORE_THRESHOLD = self._get_config_value('SCORE_THRESHOLD', float(os.environ.get('SCORE_THRESHOLD', 0.5)))
         self.INITIAL_RETRIEVAL_K = self._get_config_value('INITIAL_RETRIEVAL_K', int(os.environ.get('INITIAL_RETRIEVAL_K', 40)))
@@ -65,6 +66,7 @@ class Config:
 
         # For USER_SESSIONS, make it an instance variable for better isolation in tests
         self.USER_SESSIONS = self._get_config_value('USER_SESSIONS', {})
+        self.MAX_CHUNKS_FOR_DATE_FILTER = self._get_config_value('MAX_CHUNKS_FOR_DATE_FILTER', int(os.environ.get('MAX_CHUNKS_FOR_DATE_FILTER', 40)))
 
     def _get_config_value(self, key, default_value):
         """Helper to get value from overrides or use default."""

@@ -9,11 +9,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from sentence_transformers import CrossEncoder
-
-# Add the project root to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-sys.path.insert(0, project_root)
-
 from RAG_BOT.config import Config
 from RAG_BOT.logger import logger
 from RAG_BOT.context_retriever_tool import create_context_retriever_tool
@@ -66,13 +61,12 @@ def build_agent(vectordb: Chroma, config_instance: Config, model_name: Optional[
         # The graph will proceed, but rerank_context_node will skip reranking
 
     # --- Tool Preparation ---
-    # Use INITIAL_RETRIEVAL_K for the retriever tool that feeds the reranker
+    # Pass config_instance to the retriever tool factory
     ctx_retriever_tool_instance = create_context_retriever_tool(
         vectordb=vectordb,
-        k=config_instance.INITIAL_RETRIEVAL_K, # Use the larger K for initial retrieval
-        search_type=config_instance.SEARCH_TYPE
+        config=config_instance
     )
-    logger.info(f"Context retriever tool created with k={config_instance.INITIAL_RETRIEVAL_K}, search_type='{config_instance.SEARCH_TYPE}'.")
+    logger.info("Context retriever tool created using config instance.")
     available_tools = [ctx_retriever_tool_instance]
 
     # --- LLM Binding (for initial decision in agent_node) ---
