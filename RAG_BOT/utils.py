@@ -3,7 +3,6 @@ from typing import Optional
 import re
 import json
 from RAG_BOT.logger import logger
-import os
 from langdetect import detect, LangDetectException
 from langchain_core.documents import Document # Added for type hinting
 from typing import List # Added for type hinting

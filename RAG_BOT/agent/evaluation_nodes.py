@@ -1,15 +1,7 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/agent/evaluation_nodes.py
 import datetime
-import os
-import sys
-
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import AIMessage
-
-# Add the project root to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-sys.path.insert(0, project_root)
-
 from RAG_BOT.logger import logger
 from RAG_BOT.agent.state import AgentState
 from RAG_BOT.agent.prompts import get_evaluate_context_chat_prompt, get_reframe_question_chat_prompt
@@ -46,6 +38,7 @@ def evaluate_context_node(state: AgentState, llm: ChatGoogleGenerativeAI):
 
 
     logger.info("Evaluating context from state...")
+    logger.debug(f"Context to evaluate: {context_to_evaluate}")
     eval_chain = get_evaluate_context_chat_prompt() | llm
     evaluation_result_str = eval_chain.invoke({
         "original_query": original_query,

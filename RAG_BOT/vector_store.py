@@ -10,11 +10,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage, AIMessage
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
-
-# Add the project root to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
-
 from RAG_BOT.logger import logger
 from RAG_BOT.config import Config
 from RAG_BOT.document_processor import DocumentProcessor

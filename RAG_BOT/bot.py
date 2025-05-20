@@ -6,15 +6,9 @@ from datetime import datetime
 import re
 import os
 from flask import Flask, request, jsonify
-
-# Add the project root to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
-
-from config import Config
+from RAG_BOT.config import Config
 from RAG_BOT.logger import logger
-from vector_store import VectorStore
-# Updated import for build_agent
+from RAG_BOT.vector_store import VectorStore
 from RAG_BOT.agent.graph_builder import build_agent
 from langchain_core.messages import HumanMessage
 from message_handler import MessageHandler
@@ -22,7 +16,11 @@ from RAG_BOT.utils import detect_document_language
 from RAG_BOT.file_manager import FileManager 
 from RAG_BOT.document_indexer import DocumentIndexer 
 from RAG_BOT.pdf_processor import PdfProcessor
-from RAG_BOT.htm_processor import HtmProcessor # Added import
+from RAG_BOT.htm_processor import HtmProcessor 
+
+_RAG_BOT_PACKAGE_DIR = os.path.abspath(os.path.dirname(__file__))
+# Go up another level to get the project root (LLM_agents)
+PROJECT_ROOT_DIR = os.path.abspath(os.path.join(_RAG_BOT_PACKAGE_DIR, '..'))
 
 
 class TelegramBotApp:
@@ -278,7 +276,7 @@ class TelegramBotApp:
             file_name = self._determine_file_name(message, file_ext, default_doc_name)
             logger.info(f"User {user_id} uploaded {mime_type} (processed as {processing_mime_type}): {file_name}")
             # Define a specific upload directory
-            upload_dir = os.path.join(project_root, "uploads")
+            upload_dir = os.path.join(PROJECT_ROOT_DIR , "uploads")
             os.makedirs(upload_dir, exist_ok=True)
             file_path = os.path.join(upload_dir, file_name)                    
             file_info = self.bot.get_file(file_id)

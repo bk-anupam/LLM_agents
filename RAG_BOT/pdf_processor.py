@@ -1,12 +1,9 @@
 import os
 import sys
-from langchain_community.document_loaders import PyMuPDFLoader # Keep only PyMuPDFLoader if PyPDFLoader is unused
+from langchain_community.document_loaders import PyMuPDFLoader 
 from langchain_core.documents import Document
-# Add the project root to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
 from RAG_BOT.logger import logger
-from RAG_BOT.document_processor import DocumentProcessor # Import the base class
+from RAG_BOT.document_processor import DocumentProcessor 
 
 
 class PdfProcessor(DocumentProcessor):

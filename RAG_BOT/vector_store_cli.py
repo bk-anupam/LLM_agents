@@ -1,11 +1,6 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/vector_store_cli.py
 import sys
 import os
-
-# Add the project root to the Python path to allow imports from RAG_BOT
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
-
 from RAG_BOT.logger import logger
 from RAG_BOT.config import Config
 from RAG_BOT.vector_store import VectorStore
