@@ -18,10 +18,6 @@ from RAG_BOT.document_indexer import DocumentIndexer
 from RAG_BOT.pdf_processor import PdfProcessor
 from RAG_BOT.htm_processor import HtmProcessor 
 
-_RAG_BOT_PACKAGE_DIR = os.path.abspath(os.path.dirname(__file__))
-# Go up another level to get the project root (LLM_agents)
-PROJECT_ROOT_DIR = os.path.abspath(os.path.join(_RAG_BOT_PACKAGE_DIR, '..'))
-
 
 class TelegramBotApp:
     def __init__(self, config: Config, vector_store_instance: VectorStore, agent, 
@@ -31,7 +27,9 @@ class TelegramBotApp:
         self.config = config
         self.vector_store_instance = vector_store_instance
         self.pdf_processor = pdf_processor or PdfProcessor()
-        self.htm_processor = htm_processor or HtmProcessor()
+        self.htm_processor = htm_processor or HtmProcessor()         
+        self._rag_bot_package_dir = os.path.abspath(os.path.dirname(__file__))
+        self.project_root_dir = os.path.abspath(os.path.join(self._rag_bot_package_dir, '..'))
 
         # Use injected dependencies
         self.vectordb = vector_store_instance.get_vectordb()
@@ -276,7 +274,8 @@ class TelegramBotApp:
             file_name = self._determine_file_name(message, file_ext, default_doc_name)
             logger.info(f"User {user_id} uploaded {mime_type} (processed as {processing_mime_type}): {file_name}")
             # Define a specific upload directory
-            upload_dir = os.path.join(PROJECT_ROOT_DIR , "uploads")
+            upload_dir = os.path.join(self.project_root_dir , "uploads")
+            logger.debug(f"Upload directory: {upload_dir}")
             os.makedirs(upload_dir, exist_ok=True)
             file_path = os.path.join(upload_dir, file_name)                    
             file_info = self.bot.get_file(file_id)
