@@ -12,13 +12,10 @@ class TestTelegramBot(unittest.TestCase):
     @patch('RAG_BOT.bot.telebot.TeleBot')
     @patch('RAG_BOT.bot.Flask')
     @patch('RAG_BOT.bot.PdfProcessor')
-    @patch('RAG_BOT.bot.HtmProcessor')
-    @patch('RAG_BOT.utils.detect_document_language')
-    @patch('RAG_BOT.bot.os.makedirs')
+    @patch('RAG_BOT.bot.HtmProcessor')    
     @patch('RAG_BOT.bot.os') # Patch the entire os module as imported in RAG_BOT.bot
-    @patch('builtins.open', new_callable=mock_open) # Patch builtins.open
-    def setUp(self, mock_bot_open, mock_rag_bot_os, mock_os_makedirs,
-              mock_detect_language, MockHtmProcessor, MockPdfProcessor, MockFlask, MockTeleBot):
+    #@patch('builtins.open', new_callable=mock_open) # Patch builtins.open
+    def setUp(self, mock_rag_bot_os,  MockHtmProcessor, MockPdfProcessor, MockFlask, MockTeleBot):
         """Setup method to configure mocks before each test."""
         # Create mock instances for injected dependencies
         # These are received as arguments from the @patch decorators
@@ -27,9 +24,8 @@ class TestTelegramBot(unittest.TestCase):
         self.mock_agent = MagicMock()
         self.mock_handler = MagicMock()
         self.mock_pdf_processor_instance = MockPdfProcessor.return_value
-        self.mock_htm_processor_instance = MockHtmProcessor.return_value
-        self.mock_detect_language = mock_detect_language
-        
+        self.mock_htm_processor_instance = MockHtmProcessor.return_value        
+
         # Configure mocks as needed for initialization in TelegramBotApp.__init__
         self.mock_config.TELEGRAM_BOT_TOKEN = "dummy_token"
         self.mock_config.DATA_PATH = "dummy_data_path"
@@ -50,15 +46,10 @@ class TestTelegramBot(unittest.TestCase):
         # Assign MagicMock instances to the specific os functions we need to control
         self.mock_rag_bot_os.path.abspath = MagicMock()
         self.mock_rag_bot_os.path.join = MagicMock()
-        self.mock_rag_bot_os.path.dirname = MagicMock()
-        # self.mock_rag_bot_os.makedirs = MagicMock()
-        self.mock_rag_bot_os.remove = MagicMock()
-        self.mock_rag_bot_os.path.exists = MagicMock()
-        self.mock_bot_open = mock_bot_open
-        self.mock_rag_bot_os.remove.return_value = None # Ensure remove does nothing on the mocked os
-        # self.mock_rag_bot_os.makedirs.return_value = None # Ensure makedirs does nothing on the mocked os
-        self.mock_os_makedirs = mock_os_makedirs
-        self.mock_os_makedirs.return_value = None # Ensure mocked makedirs does nothing and returns
+        self.mock_rag_bot_os.path.dirname = MagicMock()        
+        #self.mock_rag_bot_os.remove = MagicMock()
+        self.mock_rag_bot_os.path.exists = MagicMock()        
+        self.mock_rag_bot_os.path.exists.return_value = True 
         
         # Define a consistent mocked project root for tests
         self.MOCKED_PROJECT_ROOT = '/mocked_project_root_dir'
@@ -140,9 +131,7 @@ class TestTelegramBot(unittest.TestCase):
         mock_doc_htm = MagicMock()
         mock_doc_htm.page_content = "mock htm content"
         mock_doc_htm.metadata = {'source': 'test.htm'} # Add source for consistency
-        self.mock_htm_processor_instance.load_htm.return_value = mock_doc_htm
-
-        self.mock_detect_language.return_value = 'en' # Default detected language
+        self.mock_htm_processor_instance.load_htm.return_value = mock_doc_htm        
 
         # Instantiate the TelegramBotApp with mocked dependencies
         self.bot_app = TelegramBotApp(
@@ -353,13 +342,7 @@ class TestTelegramBot(unittest.TestCase):
         mock_file_info = MagicMock()
         mock_file_info.file_path = "telegram/files/doc.pdf" # This is just a dummy for bot.get_file
         self.mock_bot_instance.get_file.return_value = mock_file_info
-        self.mock_bot_instance.download_file.return_value = b"some file data"
-
-        self.mock_rag_bot_os.path.exists.reset_mock()
-        self.mock_rag_bot_os.remove.reset_mock()
-        #self.mock_rag_bot_os.makedirs.reset_mock()
-        self.mock_os_makedirs.reset_mock()
-        self.mock_bot_open.reset_mock()
+        self.mock_bot_instance.download_file.return_value = b"some file data"        
 
         # This will be the path that 'open' is expected to be called with
         self.MOCKED_FILE_PATH_FOR_OPEN = f"{self.MOCKED_UPLOAD_DIR}/{file_name}"
@@ -377,61 +360,93 @@ class TestTelegramBot(unittest.TestCase):
         self.mock_htm_processor_instance.load_htm.reset_mock()
         self.mock_htm_processor_instance.load_htm.return_value = mock_doc_htm
         
-        self.mock_vector_store_instance.index_document.reset_mock(return_value=True)
-        self.mock_detect_language.reset_mock(return_value='en') # Reset detect_language mock too
+        self.mock_vector_store_instance.index_document.reset_mock(return_value=True)        
 
-    def test_handle_document_pdf_success(self):
-        self._prepare_document_message(mime_type="application/pdf", file_name="test_doc.pdf")
-        # Ensure os.path.exists returns True for the mocked file path during cleanup check
-        self.mock_rag_bot_os.path.exists.return_value = True
-        #self.mock_rag_bot_os.makedirs.return_value = None # Ensure makedirs does nothing on the mocked os        
-        self.mock_os_makedirs.return_value = None # Ensure makedirs does nothing on the mocked os
-        self.mock_rag_bot_os.remove.return_value = None # Ensure remove does nothing on the mocked os
 
-        self.bot_app.handle_document(self.dummy_message)
-
-        # Assert open was called with the mocked file path
-        self.mock_bot_open.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN, 'wb')
-        self.mock_pdf_processor_instance.load_pdf.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
-        self.mock_detect_language.assert_called_once() # Should be called with documents from load_pdf
-        self.mock_vector_store_instance.index_document.assert_called_once()
-        self.mock_bot_instance.reply_to.assert_called_with(self.dummy_message, "Document 'test_doc.pdf' uploaded and indexed successfully.")
-        # Assert os.remove was called with the mocked file path
-        self.mock_rag_bot_os.remove.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
-
-    def test_handle_document_htm_success(self):
-        self._prepare_document_message(mime_type="text/html", file_name="test_page.htm")
-        self.mock_rag_bot_os.path.exists.return_value = True
-
-        self.bot_app.handle_document(self.dummy_message)
-
-        self.mock_bot_open.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN, 'wb')
-        self.mock_htm_processor_instance.load_htm.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
-        self.mock_vector_store_instance.index_document.assert_called_once()
-        self.mock_bot_instance.reply_to.assert_called_with(self.dummy_message, "Document 'test_page.htm' uploaded and indexed successfully.")
-        self.mock_rag_bot_os.remove.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
-
-    def test_handle_document_octet_stream_pdf_success(self):
-        self._prepare_document_message(mime_type="application/octet-stream", file_name="document.pdf")
-        self.mock_rag_bot_os.path.exists.return_value = True
+    @patch('RAG_BOT.bot.os.path.exists') 
+    @patch('RAG_BOT.bot.detect_document_language') 
+    @patch('RAG_BOT.bot.os.remove') # Patch os.remove
+    @patch('builtins.open', new_callable=mock_open) # Patch builtins.open
+    @patch('RAG_BOT.bot.os.makedirs') 
+    def test_handle_document_pdf_success(self, mock_os_makedirs, mock_bot_open, mock_os_remove,
+                                         mock_detect_language, mock_os_path_exists):        
+        self._prepare_document_message(mime_type="application/pdf", file_name="test_doc.pdf")        
+        mock_os_makedirs.return_value = None 
+        mock_os_remove.return_value = None 
+        mock_detect_language.return_value = 'en'         
+        mock_os_path_exists.return_value = True                        
 
         self.bot_app.handle_document(self.dummy_message)
         
-        self.mock_bot_open.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN, 'wb')
+        mock_bot_open.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN, 'wb')
         self.mock_pdf_processor_instance.load_pdf.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
-        self.mock_bot_instance.reply_to.assert_called_with(self.dummy_message, "Document 'document.pdf' uploaded and indexed successfully.")
-        self.mock_rag_bot_os.remove.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
+        mock_detect_language.assert_called_once() # Should be called with documents from load_pdf
+        self.mock_vector_store_instance.index_document.assert_called_once()
+        self.mock_bot_instance.reply_to.assert_called_with(self.dummy_message, "Document 'test_doc.pdf' uploaded and indexed successfully.")
+        mock_os_remove.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
 
-    def test_handle_document_octet_stream_htm_success(self):
-        self._prepare_document_message(mime_type="application/octet-stream", file_name="archive.html")
-        self.mock_rag_bot_os.path.exists.return_value = True
+
+    @patch('RAG_BOT.bot.os.path.exists') 
+    @patch('RAG_BOT.bot.detect_document_language') 
+    @patch('RAG_BOT.bot.os.remove') 
+    @patch('builtins.open', new_callable=mock_open) 
+    @patch('RAG_BOT.bot.os.makedirs') 
+    def test_handle_document_htm_success(self, mock_os_makedirs, mock_bot_open, mock_os_remove,
+                                         mock_detect_language, mock_os_path_exists):
+        mock_os_makedirs.return_value = None 
+        mock_os_remove.return_value = None 
+        mock_detect_language.return_value = 'en'         
+        mock_os_path_exists.return_value = True                        
+        self._prepare_document_message(mime_type="text/html", file_name="test_page.htm")        
 
         self.bot_app.handle_document(self.dummy_message)
 
-        self.mock_bot_open.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN, 'wb')
+        mock_bot_open.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN, 'wb')
+        self.mock_htm_processor_instance.load_htm.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
+        self.mock_vector_store_instance.index_document.assert_called_once()
+        self.mock_bot_instance.reply_to.assert_called_with(self.dummy_message, "Document 'test_page.htm' uploaded and indexed successfully.")
+        mock_os_remove.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
+
+    @patch('RAG_BOT.bot.os.path.exists') 
+    @patch('RAG_BOT.bot.detect_document_language') 
+    @patch('RAG_BOT.bot.os.remove') 
+    @patch('builtins.open', new_callable=mock_open) 
+    @patch('RAG_BOT.bot.os.makedirs') 
+    def test_handle_document_octet_stream_pdf_success(self, mock_os_makedirs, mock_bot_open, mock_os_remove,
+                                         mock_detect_language, mock_os_path_exists):
+        mock_os_makedirs.return_value = None 
+        mock_os_remove.return_value = None 
+        mock_detect_language.return_value = 'en'         
+        mock_os_path_exists.return_value = True  
+        self._prepare_document_message(mime_type="application/octet-stream", file_name="document.pdf")        
+
+        self.bot_app.handle_document(self.dummy_message)
+        
+        mock_bot_open.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN, 'wb')
+        self.mock_pdf_processor_instance.load_pdf.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
+        self.mock_bot_instance.reply_to.assert_called_with(self.dummy_message, "Document 'document.pdf' uploaded and indexed successfully.")
+        mock_os_remove.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
+
+    @patch('RAG_BOT.bot.os.path.exists') 
+    @patch('RAG_BOT.bot.detect_document_language') 
+    @patch('RAG_BOT.bot.os.remove') 
+    @patch('builtins.open', new_callable=mock_open) 
+    @patch('RAG_BOT.bot.os.makedirs') 
+    def test_handle_document_octet_stream_htm_success(self, mock_os_makedirs, mock_bot_open, mock_os_remove,
+                                         mock_detect_language, mock_os_path_exists):
+        mock_os_makedirs.return_value = None 
+        mock_os_remove.return_value = None 
+        mock_detect_language.return_value = 'en'         
+        mock_os_path_exists.return_value = True
+        self._prepare_document_message(mime_type="application/octet-stream", file_name="archive.html")
+
+        self.bot_app.handle_document(self.dummy_message)
+
+        mock_bot_open.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN, 'wb')
         self.mock_htm_processor_instance.load_htm.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
         self.mock_bot_instance.reply_to.assert_called_with(self.dummy_message, "Document 'archive.html' uploaded and indexed successfully.")
-        self.mock_rag_bot_os.remove.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
+        mock_os_remove.assert_called_once_with(self.MOCKED_FILE_PATH_FOR_OPEN)
+
 
     def test_handle_document_unsupported_mime_type(self):
         self._prepare_document_message(mime_type="application/zip", file_name="archive.zip")
@@ -449,25 +464,45 @@ class TestTelegramBot(unittest.TestCase):
         self.mock_bot_instance.reply_to.assert_called_with(self.dummy_message, "Unsupported file type or unable to determine type from 'data.dat'.")
         self.mock_rag_bot_os.remove.assert_not_called()
 
-    def test_handle_document_load_fails(self):
+    @patch('RAG_BOT.bot.os.path.exists') 
+    @patch('RAG_BOT.bot.detect_document_language') 
+    @patch('RAG_BOT.bot.os.remove') 
+    @patch('builtins.open', new_callable=mock_open) 
+    @patch('RAG_BOT.bot.os.makedirs')
+    def test_handle_document_load_fails(self, mock_os_makedirs, mock_bot_open, mock_os_remove,
+                                         mock_detect_language, mock_os_path_exists):
+        mock_os_makedirs.return_value = None 
+        mock_os_remove.return_value = None 
+        mock_detect_language.return_value = 'en'         
+        mock_os_path_exists.return_value = True
         self._prepare_document_message(mime_type="application/pdf", file_name="empty.pdf")
-        self.mock_pdf_processor_instance.load_pdf.return_value = [] # Simulate load failure
-        self.mock_rag_bot_os.path.exists.return_value = True # File was saved
+        self.mock_pdf_processor_instance.load_pdf.return_value = [] # Simulate load failure        
 
         self.bot_app.handle_document(self.dummy_message)
 
         self.mock_bot_instance.reply_to.assert_called_with(self.dummy_message, "Could not load content from 'empty.pdf'.")
-        self.mock_rag_bot_os.remove.assert_not_called() # File should not be removed if load fails
+        mock_os_remove.assert_not_called() # File should not be removed if load fails
+        mock_detect_language.assert_not_called() # Language detection should not be called if load fails
+        self.mock_vector_store_instance.index_document.assert_not_called() # Indexing should not be attempted if load fails
 
-    def test_handle_document_indexing_fails(self):
+    @patch('RAG_BOT.bot.os.path.exists') 
+    @patch('RAG_BOT.bot.detect_document_language') 
+    @patch('RAG_BOT.bot.os.remove') 
+    @patch('builtins.open', new_callable=mock_open) 
+    @patch('RAG_BOT.bot.os.makedirs')
+    def test_handle_document_indexing_fails(self, mock_os_makedirs, mock_bot_open, mock_os_remove,
+                                         mock_detect_language, mock_os_path_exists):
+        mock_os_makedirs.return_value = None 
+        mock_os_remove.return_value = None 
+        mock_detect_language.return_value = 'en'         
+        mock_os_path_exists.return_value = True
         self._prepare_document_message(mime_type="application/pdf", file_name="noindex.pdf")
-        self.mock_vector_store_instance.index_document.return_value = False # Simulate indexing failure
-        self.mock_rag_bot_os.path.exists.return_value = True # File was saved
+        self.mock_vector_store_instance.index_document.return_value = False # Simulate indexing failure        
 
         self.bot_app.handle_document(self.dummy_message)
 
         self.mock_bot_instance.reply_to.assert_called_with(self.dummy_message, "Document 'noindex.pdf' was not indexed (possibly already exists or an error occurred).")
-        self.mock_rag_bot_os.remove.assert_not_called() # File should not be removed if indexing fails
+        mock_os_remove.assert_not_called() # File should not be removed if indexing fails
 
     def test_handle_document_no_document_in_message(self):
         self.dummy_message.document = None # Ensure no document is attached
@@ -489,15 +524,24 @@ class TestTelegramBot(unittest.TestCase):
         mock_logger.error.assert_called()
         self.mock_rag_bot_os.remove.assert_not_called() # File should not be removed if an error occurs during processing
 
-    def test_handle_document_cleanup_file_not_exists_after_processing(self):
-        self._prepare_document_message(mime_type="application/pdf", file_name="gone.pdf")
-        # Simulate successful processing, but file doesn't exist for removal (e.g., already cleaned up by another process)
-        self.mock_rag_bot_os.path.exists.return_value = False
+    @patch('RAG_BOT.bot.os.path.exists') 
+    @patch('RAG_BOT.bot.detect_document_language') 
+    @patch('RAG_BOT.bot.os.remove') 
+    @patch('builtins.open', new_callable=mock_open) 
+    @patch('RAG_BOT.bot.os.makedirs')
+    def test_handle_document_cleanup_file_not_exists_after_processing(self, mock_os_makedirs, mock_bot_open, mock_os_remove,
+                                         mock_detect_language, mock_os_path_exists):    
+        mock_os_makedirs.return_value = None 
+        mock_os_remove.return_value = None 
+        mock_detect_language.return_value = 'en'         
+        # Simulate successful processing, but file doesn't exist for removal (e.g., already cleaned up by another process)        
+        mock_os_path_exists.return_value = False
+        self._prepare_document_message(mime_type="application/pdf", file_name="gone.pdf")        
 
         self.bot_app.handle_document(self.dummy_message)
 
         self.mock_bot_instance.reply_to.assert_called_with(self.dummy_message, "Document 'gone.pdf' uploaded and indexed successfully.")
-        self.mock_rag_bot_os.remove.assert_not_called() # Removal shouldn't be attempted if file doesn't exist
+        mock_os_remove.remove.assert_not_called() # Removal shouldn't be attempted if file doesn't exist
 
 
 if __name__ == '__main__':
