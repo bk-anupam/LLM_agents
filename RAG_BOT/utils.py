@@ -2,11 +2,70 @@
 from typing import Optional
 import re
 import json
+import unicodedata # Added for character category checking
 from RAG_BOT.logger import logger
-from langdetect import detect, LangDetectException
+from langdetect import detect, LangDetectException, DetectorFactory
 from langchain_core.documents import Document # Added for type hinting
 from typing import List # Added for type hinting
 
+
+def remove_control_characters(text: str) -> str:
+    """
+    Removes Unicode control characters (Cc category) from a string,
+    except for common whitespace characters (newline, tab, carriage return).
+    """
+    if not isinstance(text, str):
+        return text
+    cleaned_chars = []
+    for char_val in text:
+        if char_val in ('\n', '\r', '\t'): # Keep common whitespace
+            cleaned_chars.append(char_val)
+        elif unicodedata.category(char_val) != 'Cc': # Keep if not a Control character
+            cleaned_chars.append(char_val)
+    cleaned_text = "".join(cleaned_chars)
+    if text != cleaned_text:
+        orig_snippet = text[:100].replace('\n', '\\n')
+        cleaned_snippet = cleaned_text[:100].replace('\n', '\\n')
+        logger.info(
+            f"Cleaned control characters from text. Original snippet (first 100 chars, newlines escaped): "
+            f" '{orig_snippet}', Cleaned snippet: '{cleaned_snippet}'"
+        )
+    return cleaned_text
+
+def filter_to_devanagari_and_essentials(text: str) -> str:
+    """
+    Filters a string to keep only Devanagari characters, standard European digits,
+    common punctuation, and standard whitespace.
+    """
+    if not isinstance(text, str):
+        return text
+
+    allowed_chars = []
+    for char_val in text:
+        # Devanagari Unicode block: U+0900 to U+097F
+        if '\u0900' <= char_val <= '\u097F':
+            allowed_chars.append(char_val)
+        # Standard European Digits (0-9)
+        elif '0' <= char_val <= '9':
+            allowed_chars.append(char_val)
+        # Common Punctuation (English and Devanagari Dandas)
+        # Add or remove punctuation as needed for your specific use case
+        elif char_val in ('.', ',', '?', '!', '-', '(', ')', '\'', '"', ':', ';', '।', '॥', '/', '*', '_'):
+            allowed_chars.append(char_val)
+        # Standard Whitespace (space, newline, tab, carriage return)
+        elif char_val in (' ', '\n', '\r', '\t'):
+            allowed_chars.append(char_val)
+        # allow english characters (a-z, A-Z) for English text
+        elif 'a' <= char_val <= 'z' or 'A' <= char_val <= 'Z':
+            allowed_chars.append(char_val)
+        else:
+            # Optional: Log discarded characters for debugging
+            logger.info(f"Discarding character: '{char_val}' (Unicode: U+{ord(char_val):04X})")
+
+    filtered_text = "".join(allowed_chars)
+    if text != filtered_text:
+        logger.info(f"Filtered non-Devanagari/non-essential characters. Snippet before: '{text[:100]}', Snippet after: '{filtered_text[:100]}'")
+    return filtered_text
 
 def parse_json_answer(content: str) -> Optional[dict]:
     """
@@ -45,15 +104,24 @@ def parse_json_answer(content: str) -> Optional[dict]:
 
         if isinstance(parsed_json, dict):
             # Optionally, validate if the dict has the expected 'answer' key
-            if "answer" in parsed_json:
-                logger.debug("Successfully parsed JSON answer with 'answer' key.")
-                return parsed_json
+            if "answer" in parsed_json: # Check if 'answer' key exists
+                answer_text = parsed_json.get("answer") # Use .get for safety
+                if isinstance(answer_text, str):
+                    # Apply the cleaning function to the extracted answer string
+                    # First, remove invisible control characters
+                    temp_cleaned_answer = remove_control_characters(answer_text)
+                    # Then, filter to keep only Devanagari and essentials
+                    cleaned_answer = filter_to_devanagari_and_essentials(temp_cleaned_answer)
+                    parsed_json["answer"] = cleaned_answer
+                    logger.debug("Successfully parsed JSON, 'answer' key found and content cleaned.")
+                elif answer_text is not None: # If answer is not None but also not a string
+                    logger.warning(f"'answer' key found but content is not a string: {type(answer_text)}. Skipping cleaning.")
+                # If answer_text is None (key exists but value is null), it will be returned as is.
+                return parsed_json # Return the dict with the (potentially cleaned) answer
             else:
-                logger.warning("Parsed JSON is a dictionary but does not contain 'answer' key. Returning dict anyway.")
-                # Decide if you want to return the dict even without 'answer'
-                # return parsed_json
-                # Or return None if 'answer' is mandatory
-                return None
+                # If "answer" key is not present
+                logger.warning("Parsed JSON is a dictionary but does not contain 'answer' key. Returning dict as is.")
+                return parsed_json # Return the dictionary as is, if other keys might be useful.                                   
         else:
             logger.warning(f"Parsed JSON is not a dictionary: {type(parsed_json)}. Content: {json_str[:100]}...")
             return None
@@ -67,11 +135,11 @@ def parse_json_answer(content: str) -> Optional[dict]:
         error_snippet_oneline = error_snippet.replace('\n', '\\n')
         logger.error(f"Failed to parse JSON: {e}. Near char {e.pos}: '{error_snippet_oneline}'")
         # Log the full content only at DEBUG level to avoid flooding logs
-        logger.error(f"Full content that failed parsing:\n{content}")
+        logger.debug(f"Full content that failed parsing:\n{content}")
         return None
     except Exception as e:
         logger.error(f"An unexpected error occurred during JSON parsing: {e}", exc_info=True)
-        logger.error(f"Full content during unexpected error:\n{content}")
+        logger.debug(f"Full content during unexpected error:\n{content}")
         return None
 
 
@@ -89,6 +157,7 @@ def detect_document_language(documents: List[Document], file_name_for_logging: s
         The detected language code (e.g., 'en', 'hi') or the default language.
     """
     logger.debug(f"Attempting to detect language for: {file_name_for_logging}")
+    DetectorFactory.seed = 0  # Set seed for reproducibility
     try:
         if not documents:
             logger.warning(f"No documents provided for '{file_name_for_logging}'. Cannot detect language. Defaulting to '{default_lang}'.")
@@ -102,6 +171,8 @@ def detect_document_language(documents: List[Document], file_name_for_logging: s
 
         detected_lang = detect(sample_text)
         logger.info(f"Detected language '{detected_lang}' for: {file_name_for_logging}")
+        if detected_lang not in ['en', 'hi']:
+            logger.info(f"Sample text used for detection: '{sample_text}'")
         return detected_lang
     except LangDetectException as lang_err:
         logger.warning(f"Could not detect language for '{file_name_for_logging}': {lang_err}. Defaulting to '{default_lang}'.")

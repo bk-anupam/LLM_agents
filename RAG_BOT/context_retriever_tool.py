@@ -232,7 +232,9 @@ def create_context_retriever_tool(vectordb: Chroma, config: Config) -> Callable:
             retrieved_docs_all_for_date = _perform_date_filtered_search(
                 vectordb, normalized_query, active_formatted_date, language, k_fallback
             )
-        final_docs_to_process = _combine_and_deduplicate(retrieved_docs_semantic, retrieved_docs_all_for_date)
+            final_docs_to_process = _combine_and_deduplicate(retrieved_docs_semantic, retrieved_docs_all_for_date)
+        else:
+            final_docs_to_process = retrieved_docs_semantic
 
         if not final_docs_to_process:
             status_message = "No relevant documents found matching the criteria after all retrieval attempts."

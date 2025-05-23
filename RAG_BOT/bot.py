@@ -299,7 +299,11 @@ class TelegramBotApp:
                 return
 
             # Detect language using the utility function with loaded documents
-            language = detect_document_language(documents, file_name_for_logging=file_name)             
+            language = detect_document_language(documents, file_name_for_logging=file_name)
+            if language not in ['en', 'hi']:
+                logger.warning(f"Unsupported language detected: {language}. Aborting document indexing.")
+                self.bot.reply_to(message, f"Unsupported language '{language}' detected in '{file_name}'. Indexing aborted.")
+                return 
             # Add detected language metadata
             for doc in documents:
                 doc.metadata['language'] = language
