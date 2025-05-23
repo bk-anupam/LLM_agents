@@ -3,10 +3,11 @@ import os
 import shutil
 from RAG_BOT.logger import logger
 from RAG_BOT.config import Config
+from typing import Optional
 
 class FileManager:
-    def __init__(self):
-        self.config = Config()
+    def __init__(self, config: Optional[Config] = None):
+        self.config = config or Config()
 
     def move_indexed_file(self, source_path: str, language: str) -> bool:
         """

@@ -6,15 +6,9 @@ from datetime import datetime
 import re
 import os
 from flask import Flask, request, jsonify
-
-# Add the project root to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
-
-from config import Config
+from RAG_BOT.config import Config
 from RAG_BOT.logger import logger
-from vector_store import VectorStore
-# Updated import for build_agent
+from RAG_BOT.vector_store import VectorStore
 from RAG_BOT.agent.graph_builder import build_agent
 from langchain_core.messages import HumanMessage
 from message_handler import MessageHandler
@@ -22,7 +16,7 @@ from RAG_BOT.utils import detect_document_language
 from RAG_BOT.file_manager import FileManager 
 from RAG_BOT.document_indexer import DocumentIndexer 
 from RAG_BOT.pdf_processor import PdfProcessor
-from RAG_BOT.htm_processor import HtmProcessor # Added import
+from RAG_BOT.htm_processor import HtmProcessor 
 
 
 class TelegramBotApp:
@@ -33,7 +27,9 @@ class TelegramBotApp:
         self.config = config
         self.vector_store_instance = vector_store_instance
         self.pdf_processor = pdf_processor or PdfProcessor()
-        self.htm_processor = htm_processor or HtmProcessor()
+        self.htm_processor = htm_processor or HtmProcessor()         
+        self._rag_bot_package_dir = os.path.abspath(os.path.dirname(__file__))
+        self.project_root_dir = os.path.abspath(os.path.join(self._rag_bot_package_dir, '..'))
 
         # Use injected dependencies
         self.vectordb = vector_store_instance.get_vectordb()
@@ -278,7 +274,8 @@ class TelegramBotApp:
             file_name = self._determine_file_name(message, file_ext, default_doc_name)
             logger.info(f"User {user_id} uploaded {mime_type} (processed as {processing_mime_type}): {file_name}")
             # Define a specific upload directory
-            upload_dir = os.path.join(project_root, "uploads")
+            upload_dir = os.path.join(self.project_root_dir , "uploads")
+            logger.debug(f"Upload directory: {upload_dir}")
             os.makedirs(upload_dir, exist_ok=True)
             file_path = os.path.join(upload_dir, file_name)                    
             file_info = self.bot.get_file(file_id)
@@ -302,7 +299,11 @@ class TelegramBotApp:
                 return
 
             # Detect language using the utility function with loaded documents
-            language = detect_document_language(documents, file_name_for_logging=file_name)             
+            language = detect_document_language(documents, file_name_for_logging=file_name)
+            if language not in ['en', 'hi']:
+                logger.warning(f"Unsupported language detected: {language}. Aborting document indexing.")
+                self.bot.reply_to(message, f"Unsupported language '{language}' detected in '{file_name}'. Indexing aborted.")
+                return 
             # Add detected language metadata
             for doc in documents:
                 doc.metadata['language'] = language
@@ -399,14 +400,20 @@ if __name__ == "__main__":
 
         # Instantiate the vector store instance
         logger.info("Initializing VectorStore...")
-        vector_store_instance = VectorStore(config.VECTOR_STORE_PATH)
+        # Pass the config instance to VectorStore
+        vector_store_instance = VectorStore(persist_directory=config.VECTOR_STORE_PATH, config=config)
         vectordb = vector_store_instance.get_vectordb() # Get the db instance after init
         logger.info("VectorStore initialized.")
 
         # --- Index data directory on startup ---
         # Instantiate FileManager and DocumentIndexer
-        file_manager_instance = FileManager()
-        document_indexer_instance = DocumentIndexer(vector_store_instance=vector_store_instance, file_manager_instance=file_manager_instance)
+        # Pass the config instance
+        file_manager_instance = FileManager(config=config)
+        document_indexer_instance = DocumentIndexer(
+            vector_store_instance=vector_store_instance,
+            file_manager_instance=file_manager_instance,
+            config=config
+        )
 
         # Call index_directory on the DocumentIndexer instance
         document_indexer_instance.index_directory(DATA_DIRECTORY)
@@ -422,7 +429,7 @@ if __name__ == "__main__":
         if vectordb is None:
              logger.error("VectorDB instance is None after initialization and indexing. Cannot build agent.")
              exit(1)
-        agent = build_agent(vectordb=vectordb, model_name=config.LLM_MODEL_NAME)
+        agent = build_agent(vectordb=vectordb, config_instance=config, model_name=config.LLM_MODEL_NAME)
         logger.info("RAG agent initialized successfully")
 
         # Initialize message handler (for non-command messages)        

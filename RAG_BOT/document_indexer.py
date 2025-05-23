@@ -6,16 +6,18 @@ from RAG_BOT.pdf_processor import PdfProcessor
 from RAG_BOT.htm_processor import HtmProcessor
 from RAG_BOT.vector_store import VectorStore
 from RAG_BOT.file_manager import FileManager
+from typing import Optional
 
 class DocumentIndexer:
-    def __init__(self, vector_store_instance: VectorStore, file_manager_instance: FileManager):
-        self.config = Config()
+    def __init__(self, vector_store_instance: VectorStore, file_manager_instance: FileManager, 
+                 config: Optional[Config] = None):
+        self.config = config or Config()
         self.pdf_processor = PdfProcessor()
         self.htm_processor = HtmProcessor()
         self.vector_store = vector_store_instance
         self.file_manager = file_manager_instance
 
-    def index_directory(self, base_data_path: str = None):
+    def index_directory(self, base_data_path: str = None, move_indexed_files: bool = True):
         """
         Recursively finds PDF files in 'english' subdirectory and HTM files in 'hindi'
         subdirectory of the base_data_path, adds language metadata, and indexes them,
@@ -94,7 +96,7 @@ class DocumentIndexer:
                     semantic_chunk=self.config.SEMANTIC_CHUNKING
                 )
 
-                if was_indexed:
+                if was_indexed and move_indexed_files:
                     indexed_count += 1
                     if self.file_manager.move_indexed_file(file_path, language):
                         moved_count += 1

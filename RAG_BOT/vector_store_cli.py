@@ -1,11 +1,6 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/vector_store_cli.py
 import sys
 import os
-
-# Add the project root to the Python path to allow imports from RAG_BOT
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
-
 from RAG_BOT.logger import logger
 from RAG_BOT.config import Config
 from RAG_BOT.vector_store import VectorStore
@@ -17,8 +12,9 @@ def test_query_index():
     """
     Test querying the index.
     """
+    config = Config() # Create a config instance
     # Initialize with the actual VectorStore class
-    vs = VectorStore(persist_directory=Config().VECTOR_STORE_PATH) 
+    vs = VectorStore(persist_directory=config.VECTOR_STORE_PATH, config=config)
     query = "दूसरों की चेकिंग करने के बारे में बाबा ने मुरली में क्या बताया है?"
     test_date = "1992-09-24" 
     logger.info(f"Testing query with date filter: {test_date}")
@@ -48,9 +44,13 @@ def index_data():
 
     # Initialize components
     # These will use the actual classes once vector_store.py is refactored
-    vector_store_instance = VectorStore(persist_directory=config.VECTOR_STORE_PATH)
-    file_manager_instance = FileManager()
-    document_indexer_instance = DocumentIndexer(vector_store_instance, file_manager_instance)
+    vector_store_instance = VectorStore(persist_directory=config.VECTOR_STORE_PATH, config=config)
+    file_manager_instance = FileManager(config=config)
+    document_indexer_instance = DocumentIndexer(
+        vector_store_instance=vector_store_instance,
+        file_manager_instance=file_manager_instance,
+        config=config
+    )
     
     document_indexer_instance.index_directory(data_dir)
 
@@ -70,5 +70,6 @@ if __name__ == "__main__":
     # test_query_index()
 
     # To log all metadata (ensure data is indexed first):
-    vs = VectorStore()
+    config_instance_for_logging = Config()
+    vs = VectorStore(config=config_instance_for_logging)
     vs.log_all_indexed_metadata()

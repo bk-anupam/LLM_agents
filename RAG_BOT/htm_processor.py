@@ -3,10 +3,6 @@ import re
 import sys
 from bs4 import BeautifulSoup
 from langchain_core.documents import Document
-
-# Add the project root to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
 from RAG_BOT.logger import logger
 # Remove the old import: from RAG_BOT.pdf_processor import extract_date_from_text, get_murli_type
 from RAG_BOT.document_processor import DocumentProcessor # Import the base class

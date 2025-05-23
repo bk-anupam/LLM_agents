@@ -1,6 +1,6 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/message_handler.py
 import datetime
-from config import Config
+from RAG_BOT.config import Config
 from RAG_BOT.logger import logger # Corrected import path based on other files
 from langchain_core.messages import HumanMessage
 from telebot.types import Message

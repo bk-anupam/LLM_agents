@@ -52,19 +52,23 @@ final_answer_prompt_system: |
 
   ---
   CRITICAL INSTRUCTION: 
-  Your entire response MUST be a single, valid JSON object.
-  Do NOT include any introductory text, explanations, apologies, or any characters 
-  whatsoever before or after the JSON block. Output ONLY the JSON. 
-  The JSON object must have a single key "answer".The value of the "answer" key should be 
-  your response to the user's question, formatted according to the language and persona 
-  instructions provided above. Ensure the entire JSON output, including all string values, 
-  is strictly UTF-8 encoded.
-  Example of the required JSON structure:
+  Your entire response MUST be formatted as a single JSON object enclosed in a markdown code block.
+  Follow this json structure PRECISELY:
   ```json
   {{
     "answer": "<Your carefully crafted answer text in the specified language and style>"
   }}
   ```
+  Details:
+  1. The response MUST start with ```json and end with ```.
+  2. Inside the markdown block, there MUST be a single, valid JSON object.
+  3. This JSON object MUST start with an opening curly brace `{{` and MUST end with a closing curly brace `}}`.
+  4. The JSON object MUST contain exactly one key: "answer".
+  5. The value for the "answer" key MUST be a single JSON string containing your complete response, adhering to the language and persona instructions.
+  6. If the answer text itself contains any double quote characters ("), they MUST be properly escaped with a backslash (e.g., `\"`).
+  7. There MUST NOT be any text, comments, or characters outside the markdown code block (neither before ```json nor after ```).
+  8. There MUST NOT be any extra keys, values, or trailing commas within the JSON object.
+  9. The entire output, including all string values, must be strictly UTF-8 encoded.  
 
 final_answer_prompt_human: "{original_query}"
 
@@ -97,12 +101,18 @@ language_instructions:
   bk_persona:
     en: "" # Empty for English (default)
     hi: |
-      Your answer should always ONLY be in Hindi language.
+      IMPORTANT: Your answer must be ONLY in the HINDI language.
   final_answer_system:
     en: "" # Empty for English (default)
     hi: |
-      IMPORTANT: Your answer should always be ONLY in the HINDI language. Generate all Hindi text using standard Devanagari 
-      Unicode characters. 
+      IMPORTANT: Your answer must be ONLY in the HINDI language.
+      When generating the Hindi answer, use EXCLUSIVELY standard Devanagari Unicode characters.
+      DO NOT use any characters from Latin, Cyrillic, Greek, or any other non-Devanagari Unicode blocks within the Hindi text.
+      The Hindi text must be pure Devanagari, clean, directly renderable, and completely free of any garbled characters, 
+      Mojibake, misplaced diacritics, or non-printable control characters (except for standard whitespace like newlines and tabs).
+      Ensure all words are correctly formed using appropriate Devanagari characters and matras (diacritics).
+      Avoid any character sequences that might cause rendering issues or appear as corrupted text. The output must be suitable for direct 
+      display without further cleaning.
 
 # User-facing messages (confirmations, errors, etc.)
 user_messages:

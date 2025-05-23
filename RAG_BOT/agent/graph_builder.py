@@ -2,18 +2,13 @@
 import functools
 import os
 import sys
-from typing import Literal
+from typing import Literal, Optional
 
 from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from sentence_transformers import CrossEncoder
-
-# Add the project root to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-sys.path.insert(0, project_root)
-
 from RAG_BOT.config import Config
 from RAG_BOT.logger import logger
 from RAG_BOT.context_retriever_tool import create_context_retriever_tool
@@ -47,29 +42,31 @@ def decide_next_step(state: AgentState) -> Literal["reframe_query", "agent_final
 
 
 # --- Graph Builder ---
-def build_agent(vectordb: Chroma, model_name: str = Config.LLM_MODEL_NAME) -> StateGraph:
-    """Builds the multi-node LangGraph agent."""
-    llm = ChatGoogleGenerativeAI(model=model_name, temperature=Config.TEMPERATURE)
-    logger.info(f"LLM model '{model_name}' initialized with temperature {Config.TEMPERATURE}.")        
+def build_agent(vectordb: Chroma, config_instance: Config, model_name: Optional[str] = None) -> StateGraph:
+    """Builds the multi-node LangGraph agent."""    
+    # Use model_name from argument if provided, else from config_instance
+    effective_model_name = model_name or config_instance.LLM_MODEL_NAME
+
+    llm = ChatGoogleGenerativeAI(model=effective_model_name, temperature=config_instance.TEMPERATURE)
+    logger.info(f"LLM model '{effective_model_name}' initialized with temperature {config_instance.TEMPERATURE}.")
     # --- Reranker Model Initialization ---
     reranker_model = None # Initialize as None
     try:
-        reranker_model_name = Config.RERANKER_MODEL_NAME
+        reranker_model_name = config_instance.RERANKER_MODEL_NAME
         logger.info(f"Loading reranker model: {reranker_model_name}")
         reranker_model = CrossEncoder(reranker_model_name)
         logger.info("Reranker model loaded successfully.")
     except Exception as e:
-        logger.error(f"Failed to load reranker model '{Config.RERANKER_MODEL_NAME}': {e}", exc_info=True)
+        logger.error(f"Failed to load reranker model '{config_instance.RERANKER_MODEL_NAME}': {e}", exc_info=True)
         # The graph will proceed, but rerank_context_node will skip reranking
 
     # --- Tool Preparation ---
-    # Use INITIAL_RETRIEVAL_K for the retriever tool that feeds the reranker
+    # Pass config_instance to the retriever tool factory
     ctx_retriever_tool_instance = create_context_retriever_tool(
         vectordb=vectordb,
-        k=Config.INITIAL_RETRIEVAL_K, # Use the larger K for initial retrieval
-        search_type=Config.SEARCH_TYPE
+        config=config_instance
     )
-    logger.info(f"Context retriever tool created with k={Config.INITIAL_RETRIEVAL_K}, search_type='{Config.SEARCH_TYPE}'.")
+    logger.info("Context retriever tool created using config instance.")
     available_tools = [ctx_retriever_tool_instance]
 
     # --- LLM Binding (for initial decision in agent_node) ---
@@ -85,7 +82,13 @@ def build_agent(vectordb: Chroma, model_name: str = Config.LLM_MODEL_NAME) -> St
         llm_with_tools=llm_with_tools
     )
     # Bind the loaded reranker model (or None if loading failed)
-    rerank_context_node_runnable = functools.partial(rerank_context_node, reranker_model=reranker_model)
+    # Use a lambda to ensure correct argument passing, especially for config_instance
+    # The lambda will receive the 'state' from LangGraph as its first argument.
+    rerank_context_node_runnable = lambda state_arg: rerank_context_node(
+        state_arg, # This is the state passed by LangGraph
+        reranker_model=reranker_model, # This is from graph_builder's scope
+        app_config=config_instance    # This is also from graph_builder's scope
+    )
     evaluate_context_node_runnable = functools.partial(evaluate_context_node, llm=llm)
     reframe_query_node_runnable = functools.partial(reframe_query_node, llm=llm)
 
