@@ -47,7 +47,7 @@ class MessageHandler:
             session['conversation'] = session['conversation'][-history_limit:]
 
 
-    def _invoke_agent_and_get_response(self, chat_id: int, language_code: str, message: str) -> str:
+    async def _invoke_agent_and_get_response(self, chat_id: int, language_code: str, message: str) -> str:
         """
         Invokes the RAG agent and extracts the response.
         Handles potential errors and unexpected response formats.
@@ -59,7 +59,7 @@ class MessageHandler:
                 "messages": [HumanMessage(content=message)],
                 "language_code": language_code
             }
-            final_state = self.agent.invoke(initial_state, config_thread)
+            final_state = await self.agent.ainvoke(initial_state, config_thread)
             answer = None
             try:
                 # Attempt to access the answer directly using chained access
@@ -81,7 +81,7 @@ class MessageHandler:
             return "Sorry, I encountered an internal error while processing your query."
 
 
-    def process_message(self, incoming_message: Message, language_code: str):
+    async def process_message(self, incoming_message: Message, language_code: str):
         """
         Process the incoming message and generate a response
         This is where you implement your custom logic
@@ -113,7 +113,7 @@ class MessageHandler:
             else:
                 response = "You haven't sent any previous messages in this session."
         else:
-            response = self._invoke_agent_and_get_response(
+            response = await self._invoke_agent_and_get_response(
                 chat_id=incoming_message.chat.id,
                 language_code=language_code,
                 message=message

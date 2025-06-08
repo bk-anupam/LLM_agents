@@ -125,3 +125,15 @@ user_messages:
   language_set_hi: "भाषा हिंदी में सेट कर दी गई है।"
   language_usage_help: "Usage: /language <language>\nSupported languages: english, hindi"
   language_unsupported: "Unsupported language. Please use 'english' or 'hindi'."
+
+# Guidance to use tavily-extract tool when retrieve_context tool fails
+guidance_prompt:
+  murli_url:
+    en: "https://www.babamurli.com/01.%20Daily%20Murli/02.%20English/01.%20Eng%20Murli%20-%20Htm/{date}-E.htm"
+    hi: "https://www.babamurli.com/01.%20Daily%20Murli/01.%20Hindi/01.%20Hindi%20Murli%20-%20Htm/{date}-H.htm"
+  template: |
+    The previous attempt to find information for the query using retrieve_context tool was unsuccessful.
+    To answer the query, you MUST now use the `tavily-extract` tool to extract murli contents from the following URL: {murli_url}.
+    Do NOT attempt to answer from memory or use any other tool for this step. Your ONLY action should be to call 
+    `tavily-extract` with the provided URL. The tool call would return the murli contents from that URL. 
+    Ensure you call the `tavily-extract` tool with these specifics.

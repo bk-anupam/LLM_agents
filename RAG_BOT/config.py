@@ -38,6 +38,7 @@ class Config:
         # Paths and simple values become instance attributes
         self.TELEGRAM_BOT_TOKEN = self._get_config_value('TELEGRAM_BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN'))
         self.GEMINI_API_KEY = self._get_config_value('GEMINI_API_KEY', os.environ.get('GEMINI_API_KEY', None))
+        self.TAVILY_API_KEY = self._get_config_value('TAVILY_API_KEY', os.environ.get('TAVILY_API_KEY', None))
         self.VECTOR_STORE_PATH = self._get_config_value('VECTOR_STORE_PATH', os.environ.get('VECTOR_STORE_PATH', None))
         self.DATA_PATH = self._get_config_value('DATA_PATH', os.environ.get('DATA_PATH', None))
         self.INDEXED_DATA_PATH = self._get_config_value('INDEXED_DATA_PATH', os.environ.get('INDEXED_DATA_PATH', None))
@@ -67,6 +68,7 @@ class Config:
         # For USER_SESSIONS, make it an instance variable for better isolation in tests
         self.USER_SESSIONS = self._get_config_value('USER_SESSIONS', {})
         self.MAX_CHUNKS_FOR_DATE_FILTER = self._get_config_value('MAX_CHUNKS_FOR_DATE_FILTER', int(os.environ.get('MAX_CHUNKS_FOR_DATE_FILTER', 40)))
+        self.ASYNC_OPERATION_TIMEOUT = self._get_config_value('ASYNC_OPERATION_TIMEOUT', int(os.environ.get('ASYNC_OPERATION_TIMEOUT', 60)))
 
     def _get_config_value(self, key, default_value):
         """Helper to get value from overrides or use default."""
@@ -147,6 +149,20 @@ class Config:
     def get_user_message(cls, message_key: str, default: str = ""):
         """Gets a specific user-facing message string from prompts.yaml."""
         return cls.PROMPTS.get('user_messages', {}).get(message_key, default)
+    
+    @classmethod
+    def get_murli_url_template(cls, language_code: str):
+        """Returns the Murli URL template (to be used by tavily-extract) for the given language code."""
+        lang = language_code.lower()
+        return cls.PROMPTS.get('guidance_prompt', {}).get('murli_url', {}).get(lang, '')
+
+    @classmethod
+    def get_guidance_prompt(cls, language_code: str, current_query: str, formatted_date_for_url: str):
+        """Returns the formatted guidance prompt with the correct Murli URL."""
+        url_template = cls.get_murli_url_template(language_code)
+        murli_url = url_template.format(date=formatted_date_for_url) if url_template and formatted_date_for_url else ""
+        template = cls.PROMPTS.get('guidance_prompt', {}).get('template', '')
+        return template.format(current_query=current_query, murli_url=murli_url)
 
 # Example usage (optional, for testing)
 if __name__ == "__main__":    

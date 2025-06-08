@@ -5,8 +5,84 @@ import json
 import unicodedata # Added for character category checking
 from RAG_BOT.logger import logger
 from langdetect import detect, LangDetectException, DetectorFactory
-from langchain_core.documents import Document # Added for type hinting
-from typing import List # Added for type hinting
+from langchain_core.documents import Document
+from typing import List 
+from datetime import datetime
+
+def _devanagari_to_ascii_digits(devanagari_string: str) -> str:
+    """Converts Devanagari numerals in a string to ASCII digits."""
+    mapping = {
+        '०': '0', '१': '1', '२': '2', '३': '3', '४': '4',
+        '५': '5', '६': '6', '७': '7', '८': '8', '९': '9'
+    }
+    return "".join(mapping.get(char, char) for char in devanagari_string)
+
+
+def extract_date_from_text(text: str, return_date_format: str = "%Y-%m-%d") -> Optional[str]:
+    """
+    Attempts to extract a date from the given text and returns it in return_date_format.
+    Args:
+        text (str): The text to search for a date.
+        return_date_format (str): The format to return the date in. Default is "%Y-%m-%d"(YYYY-MM-DD).
+    Returns:
+        str or None: The extracted date in return_date_format if found, otherwise None.
+    """
+    # Specific date patterns to avoid ambiguity
+    date_patterns = [
+        (r"(\d{4})-(\d{2})-(\d{2})", "%Y-%m-%d"),  # YYYY-MM-DD
+        (r"([०-९]{4})-([०-९]{2})-([०-९]{2})", "%Y-%m-%d"), # YYYY-MM-DD (Devanagari)
+
+        (r"(\d{2})/(\d{2})/(\d{4})", "%d/%m/%Y"), # DD/MM/YYYY
+        (r"([०-९]{2})/([०-९]{2})/([०-९]{4})", "%d/%m/%Y"), # DD/MM/YYYY (Devanagari)
+
+        (r"(\d{2})\.(\d{2})\.(\d{4})", "%d.%m.%Y"), # DD.MM.YYYY
+        (r"([०-९]{2})\.([०-९]{2})\.([०-९]{4})", "%d.%m.%Y"), # DD.MM.YYYY (Devanagari)
+
+        (r"(\d{1,2})\.(\d{1,2})\.(\d{4})", "%d.%m.%Y"), # D.M.YYYY, DD.M.YYYY, D.MM.YYYY
+        (r"([०-९]{1,2})\.([०-९]{1,2})\.([०-९]{4})", "%d.%m.%Y"), # D.M.YYYY (Devanagari)
+
+        (r"(\d{1,2})/(\d{1,2})/(\d{4})", "%d/%m/%Y"), # D/M/YYYY, DD/M/YYYY, D/MM/YYYY
+        (r"([०-९]{1,2})/([०-९]{1,2})/([०-९]{4})", "%d/%m/%Y"), # D/M/YYYY (Devanagari)
+
+        (r"(\d{1,2})-(\d{1,2})-(\d{4})", "%d-%m-%Y"), # D-M-YYYY, DD-M-YYYY, D-MM-YYYY
+        (r"([०-९]{1,2})-([०-९]{1,2})-([०-९]{4})", "%d-%m-%Y"), # D-M-YYYY (Devanagari)
+
+        (r"(\d{2})\.(\d{2})\.(\d{2})", "%d.%m.%y"), # DD.MM.YY
+        (r"([०-९]{2})\.([०-९]{2})\.([०-९]{2})", "%d.%m.%y"), # DD.MM.YY (Devanagari)
+
+        (r"(\d{2})/(\d{2})/(\d{2})", "%d/%m/%y"), # DD/MM/YY
+        (r"([०-९]{2})/([०-९]{2})/([०-९]{2})", "%d/%m/%y"), # DD/MM/YY (Devanagari)
+
+        (r"(\d{2})-(\d{2})-(\d{2})", "%d-%m-%y"), # DD-MM-YY
+        (r"([०-९]{2})-([०-९]{2})-([०-९]{2})", "%d-%m-%y"), # DD-MM-YY (Devanagari)
+
+        (r"(\d{1,2})\.(\d{1,2})\.(\d{2})", "%d.%m.%y"), # D.M.YY, DD.M.YY, D.MM.YY
+        (r"([०-९]{1,2})\.([०-९]{1,2})\.([०-९]{2})", "%d.%m.%y"), # D.M.YY (Devanagari)
+
+        (r"(\d{1,2})/(\d{1,2})/(\d{2})", "%d/%m/%y"), # D/M/YY, DD/M/YY, D/MM/YY
+        (r"([०-९]{1,2})/([०-९]{1,2})/([०-९]{2})", "%d/%m/%y"), # D/M/YY (Devanagari)
+
+        (r"(\d{1,2})-(\d{1,2})-(\d{2})", "%d-%m-%y"), # D-M-YY, DD-M-YY, D-MM-YY
+        (r"([०-९]{1,2})-([०-९]{1,2})-([०-९]{2})", "%d-%m-%y"), # D-M-YY (Devanagari)
+        # Add other common formats if needed (e.g., "January 21, 1969")
+    ]
+
+    for pattern, date_format in date_patterns:
+        match = re.search(pattern, text)
+        if match:
+            matched_date_str = match.group(0)
+            ascii_date_str = _devanagari_to_ascii_digits(matched_date_str)
+            try:
+                # Attempt to parse the date using the specified format
+                date_obj = datetime.strptime(ascii_date_str, date_format)
+                return date_obj.strftime(return_date_format)
+            except ValueError as e:
+                logger.warning(f"Date format '{date_format}' matched for '{matched_date_str}' (converted to '{ascii_date_str}'), but couldn't parse. Error: {e}")                
+            except Exception as e:
+                    logger.error(f"Unexpected error parsing date '{matched_date_str}' (converted to '{ascii_date_str}') with format '{date_format}': {e}")                    
+
+    logger.info(f"No date pattern matched in text: '{text[:100]}...'")
+    return None # Return None if no pattern matched or parsing failed
 
 
 def remove_control_characters(text: str) -> str:
@@ -70,10 +146,8 @@ def filter_to_devanagari_and_essentials(text: str) -> str:
 def parse_json_answer(content: str) -> Optional[dict]:
     """
     Extracts and parses a JSON object embedded within a markdown code block.
-
     Args:
         content: The raw string output from the LLM, potentially containing ```json ... ```.
-
     Returns:
         The parsed dictionary if successful, None otherwise.
     """
@@ -133,7 +207,7 @@ def parse_json_answer(content: str) -> Optional[dict]:
         error_snippet = json_str[error_context_start:error_context_end]
         # Replace newline characters in the snippet for cleaner logging
         error_snippet_oneline = error_snippet.replace('\n', '\\n')
-        logger.error(f"Failed to parse JSON: {e}. Near char {e.pos}: '{error_snippet_oneline}'")
+        logger.error(f"Failed to parse JSON: {e}. Near char {e.pos}: '{error_snippet_oneline}.\n Full content: {json_str}...'")
         # Log the full content only at DEBUG level to avoid flooding logs
         logger.debug(f"Full content that failed parsing:\n{content}")
         return None
