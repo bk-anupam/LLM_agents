@@ -21,3 +21,4 @@ requests
 sentence-transformers
 torch
 langdetect
+langchain-mcp-adapters
