@@ -44,7 +44,8 @@ class TelegramBotApp:
 
         # Setup asyncio event loop for background tasks and agent invocations
         self.loop = asyncio.new_event_loop()
-        self.thread = threading.Thread(target=self._run_loop, daemon=True)
+        # Make the thread non-daemon to prevent abrupt termination
+        self.thread = threading.Thread(target=self._run_loop, daemon=False)
         self.thread.start()
         
         # Initialize Telegram bot and handlers
@@ -52,10 +53,15 @@ class TelegramBotApp:
 
     def _run_loop(self):
         asyncio.set_event_loop(self.loop)
+        logger.info(f"Asyncio event loop starting in thread: {threading.current_thread().name}")
         try:
             self.loop.run_forever()
+        except Exception as e:
+            logger.error(f"Asyncio event loop encountered an error: {e}", exc_info=True)
         finally:
+            logger.info("Asyncio event loop is stopping...")
             self.loop.close()
+            logger.info("Asyncio event loop has been closed.")
 
     async def initialize_agent_and_handler(self, vectordb_for_agent, config_for_agent):
         """Initializes RAG agent and MessageHandler using the app's dedicated event loop."""
@@ -73,16 +79,15 @@ class TelegramBotApp:
         if not self.config.TELEGRAM_BOT_TOKEN:
             logger.error("TELEGRAM_BOT_TOKEN is not set. Please set it in your environment variables.")
             exit(1)
-
         try:
             # Create Telegram bot instance
             self.bot = telebot.TeleBot(self.config.TELEGRAM_BOT_TOKEN)
             logger.info("Telegram bot initialized successfully")
-
             # Setup webhook route after initializing bot and config
             self._setup_webhook_route()
             logger.info("Webhook route set up successfully")
-
+            self._setup_health_check_route() # Add health check route
+            logger.info("Health check route set up successfully")
             # Register message handlers after bot initialization
             self.bot.register_message_handler(self.send_welcome, commands=['start'])
             self.bot.register_message_handler(self.send_help, commands=['help'])
@@ -90,10 +95,10 @@ class TelegramBotApp:
             self.bot.register_message_handler(self.handle_document, content_types=['document'])
             self.bot.register_message_handler(self.handle_all_messages_wrapper, func=lambda message: True)
             logger.info("Message handlers registered successfully")
-
         except Exception as e:
             logger.critical(f"Failed during application startup: {str(e)}", exc_info=True)
             exit(1)
+
 
     def _setup_webhook_route(self):
         """Sets up the webhook endpoint for Telegram."""
@@ -114,6 +119,14 @@ class TelegramBotApp:
                 logger.warning(f"Received invalid content type for webhook: {request.headers.get('content-type')}")
                 return jsonify({"status": "error", "message": "Invalid content type"}), 400
 
+
+    def _setup_health_check_route(self):
+        """Sets up the health check endpoint."""
+        @self.app.route('/', methods=['GET'])
+        def health_check():
+            """Simple health check endpoint."""
+            return jsonify({"status": "ok"}), 200
+        
 
     def send_response(self, message, user_id, response_text):
         """
