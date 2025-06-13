@@ -1,9 +1,8 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/bot.py
 import telebot
-import sys
+import asyncio
 from telebot.types import Message, Update
-from datetime import datetime
-import re
+import threading # Added for dedicated event loop
 import os
 from flask import Flask, request, jsonify
 from RAG_BOT.config import Config
@@ -11,7 +10,7 @@ from RAG_BOT.logger import logger
 from RAG_BOT.vector_store import VectorStore
 from RAG_BOT.agent.graph_builder import build_agent
 from langchain_core.messages import HumanMessage
-from message_handler import MessageHandler
+from RAG_BOT.message_handler import MessageHandler
 from RAG_BOT.utils import detect_document_language
 from RAG_BOT.file_manager import FileManager 
 from RAG_BOT.document_indexer import DocumentIndexer 
@@ -20,47 +19,82 @@ from RAG_BOT.htm_processor import HtmProcessor
 
 
 class TelegramBotApp:
-    def __init__(self, config: Config, vector_store_instance: VectorStore, agent, 
-                 handler: MessageHandler, pdf_processor: PdfProcessor = None, htm_processor: HtmProcessor = None):
+    def __init__(self, config: Config, vector_store_instance: VectorStore, 
+                 pdf_processor: PdfProcessor = None, htm_processor: HtmProcessor = None):
         # Initialize Flask app
         self.app = Flask(__name__)
         self.config = config
+
+        # Initialize attributes that will be set later
+        self.agent = None
+        self.handler = None
+
         self.vector_store_instance = vector_store_instance
         self.pdf_processor = pdf_processor or PdfProcessor()
         self.htm_processor = htm_processor or HtmProcessor()         
         self._rag_bot_package_dir = os.path.abspath(os.path.dirname(__file__))
         self.project_root_dir = os.path.abspath(os.path.join(self._rag_bot_package_dir, '..'))
 
-        # Use injected dependencies
+        # Vectordb can be initialized here
         self.vectordb = vector_store_instance.get_vectordb()
-        self.agent = agent
-        self.handler = handler
 
         # Assumes a 'data' folder path exists in .env
         self.DATA_DIRECTORY = self.config.DATA_PATH
         logger.info(f"Data directory set to: {self.DATA_DIRECTORY}")
 
+        # Setup asyncio event loop for background tasks and agent invocations
+        self.loop = asyncio.new_event_loop()
+        # Make the thread non-daemon to prevent abrupt termination
+        self.thread = threading.Thread(target=self._run_loop, daemon=False)
+        self.thread.start()
+        
+        # Initialize Telegram bot and handlers
+        self._initialize_telegram_bot()
+
+    def _run_loop(self):
+        asyncio.set_event_loop(self.loop)
+        logger.info(f"Asyncio event loop starting in thread: {threading.current_thread().name}")
+        try:
+            self.loop.run_forever()
+        except Exception as e:
+            logger.error(f"Asyncio event loop encountered an error: {e}", exc_info=True)
+        finally:
+            logger.info("Asyncio event loop is stopping...")
+            self.loop.close()
+            logger.info("Asyncio event loop has been closed.")
+
+    async def initialize_agent_and_handler(self, vectordb_for_agent, config_for_agent):
+        """Initializes RAG agent and MessageHandler using the app's dedicated event loop."""
+        logger.info("Initializing RAG agent and MessageHandler in dedicated loop...")
+        # When this coroutine is run via run_coroutine_threadsafe on self.loop,
+        # `await build_agent` will execute within self.loop's context.
+        self.agent = await build_agent(vectordb=vectordb_for_agent, config_instance=config_for_agent, 
+                                       model_name=config_for_agent.LLM_MODEL_NAME)
+        # MessageHandler itself is sync
+        self.handler = MessageHandler(agent=self.agent, config=self.config) 
+        logger.info("RAG agent and MessageHandler initialized successfully using dedicated loop.")
+
+    def _initialize_telegram_bot(self):
+        """Initializes the Telegram bot, webhook, and message handlers."""
         if not self.config.TELEGRAM_BOT_TOKEN:
             logger.error("TELEGRAM_BOT_TOKEN is not set. Please set it in your environment variables.")
             exit(1)
-
         try:
             # Create Telegram bot instance
             self.bot = telebot.TeleBot(self.config.TELEGRAM_BOT_TOKEN)
             logger.info("Telegram bot initialized successfully")
-
             # Setup webhook route after initializing bot and config
             self._setup_webhook_route()
             logger.info("Webhook route set up successfully")
-
+            self._setup_health_check_route() # Add health check route
+            logger.info("Health check route set up successfully")
             # Register message handlers after bot initialization
             self.bot.register_message_handler(self.send_welcome, commands=['start'])
             self.bot.register_message_handler(self.send_help, commands=['help'])
             self.bot.register_message_handler(self.handle_language_command, commands=['language']) # Register new command
             self.bot.register_message_handler(self.handle_document, content_types=['document'])
-            self.bot.register_message_handler(self.handle_all_messages, func=lambda message: True)
+            self.bot.register_message_handler(self.handle_all_messages_wrapper, func=lambda message: True)
             logger.info("Message handlers registered successfully")
-
         except Exception as e:
             logger.critical(f"Failed during application startup: {str(e)}", exc_info=True)
             exit(1)
@@ -85,6 +119,14 @@ class TelegramBotApp:
                 logger.warning(f"Received invalid content type for webhook: {request.headers.get('content-type')}")
                 return jsonify({"status": "error", "message": "Invalid content type"}), 400
 
+
+    def _setup_health_check_route(self):
+        """Sets up the health check endpoint."""
+        @self.app.route('/', methods=['GET'])
+        def health_check():
+            """Simple health check endpoint."""
+            return jsonify({"status": "ok"}), 200
+        
 
     def send_response(self, message, user_id, response_text):
         """
@@ -124,7 +166,7 @@ class TelegramBotApp:
             self.send_help,
             self.handle_language_command,
             self.handle_document,
-            self.handle_all_messages,
+            self.handle_all_messages_wrapper,
         ]
 
 
@@ -176,14 +218,12 @@ class TelegramBotApp:
         # Store the language preference
         self.config.USER_SESSIONS[user_id]['language'] = lang_code
         logger.info(f"Set language preference for user {user_id} to '{lang_code}'")
-
         # Get confirmation message in the selected language (fetch from prompts or use defaults)
         confirmation_prompt_key = f"language_set_{lang_code}"
         # Define defaults just in case the keys are missing from prompts.yaml
         default_confirmations = {'en': "Language set to English.", 'hi': "भाषा हिंदी में सेट कर दी गई है।"}
         # Use the new config method to get the message
         reply_text = self.config.get_user_message(confirmation_prompt_key, default_confirmations[lang_code])
-
         self.bot.reply_to(message, reply_text)
 
 
@@ -236,11 +276,11 @@ class TelegramBotApp:
                  if ext.lower() in ['.htm', '.html']:
                      file_ext = ".htm"
                      default_doc_name = original_file_name
-                     processing_mime_type = 'text/html' # Treat as html for processing
+                     processing_mime_type = 'text/html' 
                  elif ext.lower() == '.pdf':
                      file_ext = ".pdf"
                      default_doc_name = original_file_name
-                     processing_mime_type = 'application/pdf' # Treat as pdf for processing
+                     processing_mime_type = 'application/pdf' 
              
              if file_ext is None: # If still no specific type determined
                  raise ValueError(f"Unsupported file type or unable to determine type from '{original_file_name or 'uploaded file'}'.")
@@ -333,23 +373,45 @@ class TelegramBotApp:
 
     # --- End Document Upload Handling ---
 
+    def handle_all_messages_wrapper(self, message: Message):
+        """Synchronous wrapper for the async message handler."""
+        user_id = message.from_user.id
+        if not self.handler:
+            logger.error(f"MessageHandler not initialized. Cannot process message for user {user_id}.")
+            self.send_response(message, user_id, "The bot is currently initializing. Please try again shortly.")
+            return
 
-    def handle_all_messages(self, message: Message):
+        response_text = "Sorry, an unexpected error occurred." # Default response
+        try:
+            # Submit the async task to the dedicated event loop
+            future = asyncio.run_coroutine_threadsafe(self._handle_all_messages_async_core(message), self.loop)                        
+            response_text = future.result(timeout=self.config.ASYNC_OPERATION_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.error(f"Async message processing timed out for user {user_id}")
+            response_text = "Sorry, your request timed out. Please try again."
+        except Exception as e:
+            logger.error(f"Error during async message processing for user {user_id}: {e}", exc_info=True)
+            # response_text remains the default "Sorry, an unexpected error occurred."
+        finally:
+            # Always send a response back to the user.
+            self.send_response(message, user_id, response_text)
+
+
+    async def _handle_all_messages_async_core(self, message: Message) -> str:
         """
-        Handles all non-command text messages.
+        Core async logic for handling messages. Runs in the dedicated event loop.
+        Returns the response string.
         """
         user_id = message.from_user.id
-        # Get user's preferred language from session, default to 'en' if not set
-        user_lang = self.config.USER_SESSIONS.get(user_id, {}).get('language', 'en')
-        logger.info(f"Received message from user {user_id}: '{message.text[:100]}...'")
-        try:
-            # Process the message using the handler (which might invoke the agent or query directly)
-            response_text = self.handler.process_message(message, user_lang)
-            self.send_response(message, user_id, response_text)
-        except Exception as e:
-            logger.error(f"Error processing message from user {user_id}: {str(e)}", exc_info=True)
-            self.bot.reply_to(message, "Sorry, I encountered an error processing your request.")
+        user_lang = self.config.USER_SESSIONS.get(user_id, {}).get('language', 'en') # Default to 'en'
+        logger.info(f"Processing message for user {user_id} in async core: '{message.text[:100]}...'")
 
+        try:
+            # self.handler should be valid as it's checked in the wrapper
+            return await self.handler.process_message(message, user_lang)
+        except Exception as e:
+            logger.error(f"Error in _handle_all_messages_async_core for user {user_id}: {str(e)}", exc_info=True)
+            return "Sorry, I encountered an internal error while processing your request."
 
     # Setup and webhook configuration functions
     def setup_webhook(self, url):
@@ -376,6 +438,11 @@ class TelegramBotApp:
 
     def run(self):
         """Runs the Flask application."""
+        if not self.agent or not self.handler:
+            logger.critical("Agent or MessageHandler not initialized before run(). Ensure initialize_agent_and_handler() was successfully called.")
+            # This indicates a severe setup issue.
+            exit(1)
+
         WEBHOOK_URL = self.config.WEBHOOK_URL
         if not WEBHOOK_URL:
             logger.error("WEBHOOK_URL is not set in config. Cannot start Flask server with webhook.")
@@ -390,63 +457,66 @@ class TelegramBotApp:
 
 
 if __name__ == "__main__":
-    try:
-        # Initialize dependencies
-        config = Config()
+    # This top-level function is now synchronous as it orchestrates
+    # the creation of the app and then runs its async initialization.
+    def main_setup_and_run():
+        try:
+            config = Config()
 
-        # Assumes a 'data' folder path exists in .env
-        DATA_DIRECTORY = config.DATA_PATH
-        logger.info(f"Data directory set to: {DATA_DIRECTORY}")
+            # Assumes a 'data' folder path exists in .env
+            DATA_DIRECTORY = config.DATA_PATH
+            logger.info(f"Data directory set to: {DATA_DIRECTORY}")
+            
+            vector_store_instance = VectorStore(persist_directory=config.VECTOR_STORE_PATH, config=config)
+            vectordb = vector_store_instance.get_vectordb() # Get the db instance after init
+            logger.info("VectorStore initialized.")
 
-        # Instantiate the vector store instance
-        logger.info("Initializing VectorStore...")
-        # Pass the config instance to VectorStore
-        vector_store_instance = VectorStore(persist_directory=config.VECTOR_STORE_PATH, config=config)
-        vectordb = vector_store_instance.get_vectordb() # Get the db instance after init
-        logger.info("VectorStore initialized.")
+            # --- Index data directory on startup ---            
+            file_manager_instance = FileManager(config=config)
+            document_indexer_instance = DocumentIndexer(
+                vector_store_instance=vector_store_instance,
+                file_manager_instance=file_manager_instance,
+                config=config
+            )            
+            document_indexer_instance.index_directory(DATA_DIRECTORY)
+            # --- End Indexing ---
+            
+            logger.info("Logging final indexed metadata...")
+            vector_store_instance.log_all_indexed_metadata()
 
-        # --- Index data directory on startup ---
-        # Instantiate FileManager and DocumentIndexer
-        # Pass the config instance
-        file_manager_instance = FileManager(config=config)
-        document_indexer_instance = DocumentIndexer(
-            vector_store_instance=vector_store_instance,
-            file_manager_instance=file_manager_instance,
-            config=config
-        )
+            if vectordb is None:
+                logger.error("VectorDB instance is None. Cannot proceed.")
+                exit(1)
 
-        # Call index_directory on the DocumentIndexer instance
-        document_indexer_instance.index_directory(DATA_DIRECTORY)
-        # --- End Indexing ---
+            pdf_processor = PdfProcessor() 
+            htm_processor = HtmProcessor() 
 
-        # Log the final state of indexed metadata after potential indexing
-        logger.info("Logging final indexed metadata...")
-        vector_store_instance.log_all_indexed_metadata()
+            # Create bot_app instance. This starts its event loop thread.
+            bot_app = TelegramBotApp(config=config, vector_store_instance=vector_store_instance,
+                                     pdf_processor=pdf_processor, htm_processor=htm_processor)
 
-        # Create rag agent instance
-        logger.info("Initializing RAG agent...")
-        # Ensure vectordb is valid before passing to agent
-        if vectordb is None:
-             logger.error("VectorDB instance is None after initialization and indexing. Cannot build agent.")
-             exit(1)
-        agent = build_agent(vectordb=vectordb, config_instance=config, model_name=config.LLM_MODEL_NAME)
-        logger.info("RAG agent initialized successfully")
+            # Define an async function to perform async initializations
+            async def _async_init_for_bot_app():
+                await bot_app.initialize_agent_and_handler(vectordb, config)
 
-        # Initialize message handler (for non-command messages)        
-        handler = MessageHandler(agent=agent, config=config)
-        pdf_processor = PdfProcessor() # Initialize PDF processor
-        htm_processor = HtmProcessor() # Initialize HTM processor
+            # Run the async initialization (agent building, handler creation) on the bot_app's dedicated event loop.
+            logger.info("Submitting async initialization to bot's event loop...")
+            future = asyncio.run_coroutine_threadsafe(_async_init_for_bot_app(), bot_app.loop)
+            try:
+                future.result(timeout=config.ASYNC_OPERATION_TIMEOUT) 
+                logger.info("Async initialization of agent and handler complete.")
+            except Exception as e:
+                logger.critical(f"Failed to initialize agent and handler via dedicated loop: {e}", exc_info=True)
+                bot_app.loop.call_soon_threadsafe(bot_app.loop.stop) # Request loop to stop
+                bot_app.thread.join(timeout=5) # Wait for thread to finish
+                exit(1)
 
-        # Create an instance of the TelegramBotApp and run it        
-        bot_app = TelegramBotApp(config=config, vector_store_instance=vector_store_instance, agent=agent, 
-                                 handler=handler, pdf_processor=pdf_processor, htm_processor=htm_processor) # Pass htm_processor
-        bot_app.run()
+            # At this point, bot_app.agent and bot_app.handler are set.
+            # Now, run the Flask app.
+            bot_app.run()
 
-    except Exception as e:
-        logger.critical(f"Failed during application startup: {str(e)}", exc_info=True)
-        exit(1)
+        except Exception as e:
+            logger.critical(f"Failed during application startup: {str(e)}", exc_info=True)
+            exit(1)
 
-# Keep start_bot for potential polling mode if needed, but it's not used with webhook
-# def start_bot():
-#    logger.info("Starting bot in polling mode...")
-#    bot.infinity_polling()
+    main_setup_and_run()

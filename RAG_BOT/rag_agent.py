@@ -1,5 +1,6 @@
 # This file is now primarily for running the agent directly if needed.
 # The core logic (state, prompts, nodes, graph builder) is in the RAG_BOT.agent package.
+import asyncio
 from langchain_chroma import Chroma
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -14,76 +15,83 @@ from RAG_BOT.vector_store import VectorStore
 
 # --- Example Invocation ---
 if __name__ == '__main__':    
-    try:
-        config = Config()
-        persist_directory = config.VECTOR_STORE_PATH
-        # Instantiate the vector store instance
-        logger.info("Initializing VectorStore...")
-        # Pass the config instance to VectorStore
-        vector_store_instance = VectorStore(persist_directory=config.VECTOR_STORE_PATH, config=config)
-        vectordb = vector_store_instance.get_vectordb() # Get the db instance after init
-        logger.info("VectorStore initialized.")
-        # Create rag agent instance
-        logger.info("Initializing RAG agent...")
-        # Ensure vectordb is valid before passing to agent
-        if vectordb is None:
-             logger.error("VectorDB instance is None after initialization and indexing. Cannot build agent.")
-             exit(1)
-        agent = build_agent(vectordb=vectordb, config_instance=config, model_name=config.LLM_MODEL_NAME)
-        logger.info("RAG agent initialized successfully")        
+    async def run_agent_example():
+        try:
+            config = Config()
+            persist_directory = config.VECTOR_STORE_PATH
+            # Instantiate the vector store instance
+            logger.info("Initializing VectorStore...")
+            # Pass the config instance to VectorStore
+            vector_store_instance = VectorStore(persist_directory=config.VECTOR_STORE_PATH, config=config)
+            vectordb = vector_store_instance.get_vectordb() # Get the db instance after init
+            logger.info("VectorStore initialized.")
+            # Create rag agent instance
+            logger.info("Initializing RAG agent...")
+            # Ensure vectordb is valid before passing to agent
+            if vectordb is None:
+                logger.error("VectorDB instance is None after initialization and indexing. Cannot build agent.")
+                exit(1)
+            agent = await build_agent(vectordb=vectordb, config_instance=config, model_name=config.LLM_MODEL_NAME)
+            logger.info("RAG agent initialized successfully")        
 
-        # Example run - User query no longer needs JSON instruction
-        # user_question = "Can you summarize the murli from 1950-01-18?"
-        # user_question = "Can you summarize the murli of 1969-02-06"
-        user_question = "1969-01-18 की मुरली का सार क्या है? कृपया पुरुषार्थ के दृष्टिकोण से हिंदी भाषा में बताएं"
-        language_code = "hi"
+            # Example run - User query no longer needs JSON instruction
+            # user_question = "Can you summarize the murli from 1950-01-18?"
+            # user_question = "Can you summarize the murli of 2025-06-06"
+            # user_question = "1969-01-18 की मुरली का सार क्या है? कृपया पुरुषार्थ के दृष्टिकोण से हिंदी भाषा में बताएं"
+            user_question = "2025-06-07 की मुरली का सार क्या है?"
+            language_code = "hi"
 
-        # Initialize state correctly
-        initial_state = AgentState(
-            messages=[HumanMessage(content=user_question)],
-            original_query=None,
-            current_query=None,
-            context=None,
-            retry_attempted=False,
-            evaluation_result=None,
-            language_code=language_code
-        )
+            # Initialize state correctly
+            initial_state = AgentState(
+                messages=[HumanMessage(content=user_question)],
+                original_query=None,
+                current_query=None,
+                context=None,
+                retry_attempted=False,
+                evaluation_result=None,
+                language_code=language_code,
+                documents=None,
+                web_search_attempted=False,
+                last_retrieval_source=None
+            )
 
-        print(f"\n--- Invoking Agent for query: '{user_question}' ---")
-        print("\n--- Invoking Agent (using invoke) ---")
-        # Use invoke to get the final state directly
-        final_state_result = agent.invoke(initial_state, {"recursion_limit": 15})
-        print("\n--- Agent Invocation Complete ---")
+            print(f"\n--- Invoking Agent for query: '{user_question}' ---")
+            print("\n--- Invoking Agent (using invoke) ---")
+            # Use invoke to get the final state directly
+            final_state_result = await agent.ainvoke(initial_state, {"recursion_limit": 15})
+            print("\n--- Agent Invocation Complete ---")
 
-        # Process final state
-        if isinstance(final_state_result, dict) and 'messages' in final_state_result:
-            print("\n--- Final State ---")
-            print(f"Original Query: {final_state_result.get('original_query')}")
-            print(f"Current Query: {final_state_result.get('current_query')}")
-            print(f"Retry Attempted: {final_state_result.get('retry_attempted')}")
-            print(f"Evaluation Result: {final_state_result.get('evaluation_result')}")
-            print(f"Context Present: {bool(final_state_result.get('context'))}")
+            # Process final state
+            if isinstance(final_state_result, dict) and 'messages' in final_state_result:
+                print("\n--- Final State ---")
+                print(f"Original Query: {final_state_result.get('original_query')}")
+                print(f"Current Query: {final_state_result.get('current_query')}")
+                print(f"Retry Attempted: {final_state_result.get('retry_attempted')}")
+                print(f"Evaluation Result: {final_state_result.get('evaluation_result')}")
+                print(f"Context Present: {bool(final_state_result.get('context'))}")
 
-            print("\n--- Final State Messages ---")
-            for m in final_state_result['messages']:
-                m.pretty_print()
+                print("\n--- Final State Messages ---")
+                for m in final_state_result['messages']:
+                    m.pretty_print()
 
-            final_answer_message = final_state_result['messages'][-1]
-            if isinstance(final_answer_message, AIMessage):
-                print("\nFinal Answer Content:")
-                print(final_answer_message.content)
-                # Use the robust parsing function from utils.py
-                parsed_json = parse_json_answer(final_answer_message.content)
-                if parsed_json and "answer" in parsed_json:
-                    print("\nParsed JSON Answer:", parsed_json.get("answer"))
+                final_answer_message = final_state_result['messages'][-1]
+                if isinstance(final_answer_message, AIMessage):
+                    print("\nFinal Answer Content:")
+                    print(final_answer_message.content)
+                    # Use the robust parsing function from utils.py
+                    parsed_json = parse_json_answer(final_answer_message.content)
+                    if parsed_json and "answer" in parsed_json:
+                        print("\nParsed JSON Answer:", parsed_json.get("answer"))
+                    else:
+                        print("\nWarning: Final answer content is not valid JSON.")
+
                 else:
-                    print("\nWarning: Final answer content is not valid JSON.")
-
+                    print("\nFinal message was not an AIMessage:", final_answer_message)
             else:
-                print("\nFinal message was not an AIMessage:", final_answer_message)
-        else:
-             print("\nError: Could not extract final messages from result:", final_state_result)
+                print("\nError: Could not extract final messages from result:", final_state_result)
 
-    except Exception as e:
-        logger.error(f"Error during example run: {e}", exc_info=True)
-        print(f"\nError during example run: {e}")
+        except Exception as e:
+            logger.error(f"Error during example run: {e}", exc_info=True)
+            print(f"\nError during example run: {e}")
+
+asyncio.run(run_agent_example())

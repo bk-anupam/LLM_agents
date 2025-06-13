@@ -21,7 +21,7 @@ if not isinstance(log_level, int):
 logging.basicConfig(
     level=log_level, # Use the determined level
     # Add %(module)s, %(funcName)s, and %(lineno)d to the format string
-    format='%(asctime)s - %(name)s - [%(module)s.%(funcName)s:%(lineno)d] - %(levelname)s - %(message)s'
+    format='%(asctime)s-%(name)s-[%(module)s.%(funcName)s:%(lineno)d]-%(levelname)s - %(message)s'
     # Example Breakdown:
     # %(asctime)s: Time of log creation
     # %(name)s: Name of the logger (often the module name if using getLogger(__name__))
