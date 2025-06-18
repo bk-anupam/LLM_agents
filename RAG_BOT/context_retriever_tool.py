@@ -108,7 +108,7 @@ def create_context_retriever_tool(vectordb: Chroma, config: Config) -> Callable:
         # to delete
         # log all retrieved documents
         if semantic_docs:
-            logger.info(f"Retrieved {len(semantic_docs)} semantic documents: {[doc.page_content for doc in semantic_docs]}")
+            logger.debug(f"Retrieved {len(semantic_docs)} semantic documents: {[doc.page_content for doc in semantic_docs]}")
         
         # 2. BM25 Search (if filters present)
         bm25_results = []
@@ -120,7 +120,7 @@ def create_context_retriever_tool(vectordb: Chroma, config: Config) -> Callable:
                 logger.info(f"BM25 search retrieved {len(bm25_results)} chunks.")
                 # to delete
                 # Log content of BM25 results
-                logger.info(f"BM25 results: {[item[0] for item in bm25_results]}")  
+                logger.debug(f"BM25 results: {[item[0] for item in bm25_results]}")  
         
         # 3. Combine results
         combined_chunks = result_processor.combine_and_deduplicate(semantic_docs, bm25_results)
