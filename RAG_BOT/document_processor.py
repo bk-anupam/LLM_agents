@@ -1,3 +1,4 @@
+from typing import List
 import RAG_BOT.utils as utils
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_text_splitters import SentenceTransformersTokenTextSplitter
@@ -26,12 +27,39 @@ class DocumentProcessor:
             return True
         return False
 
-    def split_text(self, documents, chunk_size=1000, chunk_overlap=200):
-        """Splits the documents into chunks using RecursiveCharacterTextSplitter."""
+    def split_text(self, documents: List[Document], chunk_size=1000, chunk_overlap=200) -> List[Document]:
+        """
+        Splits the combined content of the input documents (assumed to be pages/parts of a single logical Murli)
+        into chunks using RecursiveCharacterTextSplitter, adding 'seq_no' metadata.
+        """
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        texts = text_splitter.split_documents(documents)
-        logger.info(f"Split documents into {len(texts)} chunks using RecursiveCharacterTextSplitter")
-        return texts
+
+        full_content = ""
+        primary_metadata = {}
+        if documents:
+            # Use metadata from the first document as representative for the Murli
+            primary_metadata = documents[0].metadata.copy()
+            primary_metadata.pop('page', None) # Remove page-specific meta if present
+            primary_metadata.pop('total_pages', None)
+
+            for doc_page in documents:
+                full_content += doc_page.page_content + "\n\n" # Add separator
+
+        if not full_content.strip():
+            logger.warning("No content to split after concatenating input documents.")
+            return []
+
+        split_content_strings = text_splitter.split_text(full_content)        
+        chunked_documents = []
+        for i, chunk_text in enumerate(split_content_strings):
+            # Each chunk gets a copy of the primary Murli metadata + its sequence number
+            chunk_metadata = primary_metadata.copy()
+            chunk_metadata['seq_no'] = i + 1
+            chunked_documents.append(Document(page_content=chunk_text, metadata=chunk_metadata))
+
+        logger.info(f"Split combined content into {len(chunked_documents)} chunks with seq_no, using RecursiveCharacterTextSplitter.")
+        return chunked_documents
+
 
     def semantic_chunking(self, documents, model_name="sentence-transformers/all-MiniLM-L6-v2",
                           chunk_size=1000, chunk_overlap=0):
@@ -44,16 +72,21 @@ class DocumentProcessor:
         Returns:
             list: A list of LangChain Document objects representing the semantically chunked text.
         """
-        logger.info(f"Performing semantic chunking using model: {model_name} with chunk size : {chunk_size} tokens")
-        # Initialize the sentence transformer text splitter
+        logger.info(f"Performing semantic chunking with seq_no, using model: {model_name} with chunk size: {chunk_size} tokens")                    
         try:
-            splitter = SentenceTransformersTokenTextSplitter(model_name=model_name, chunk_overlap=0, tokens_per_chunk=chunk_size)
-            # Split the documents into semantically meaningful chunks
+            # chunk_overlap for SentenceTransformersTokenTextSplitter is usually 0.
+            splitter = SentenceTransformersTokenTextSplitter(
+                model_name=model_name,
+                chunk_overlap=0, # Default for this splitter
+                tokens_per_chunk=chunk_size
+            )
             chunks = splitter.split_documents(documents)
-            logger.info(f"Split documents into {len(chunks)} chunks using semantic chunking")
+
+            # Add seq_no to each generated chunk
+            for i, chunk in enumerate(chunks):
+                chunk.metadata['seq_no'] = i + 1
+            logger.info(f"Split content into {len(chunks)} chunks with seq_no, using semantic chunking.")
             return chunks
         except Exception as e:
             logger.error(f"Error during semantic chunking: {e}")
-            # Consider re-raising or returning empty list based on desired behavior
-            # raise # Re-raise the exception
             return [] # Return empty list to indicate failure but allow continuation

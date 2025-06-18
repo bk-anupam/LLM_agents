@@ -58,12 +58,22 @@ class Config:
         self.JUDGE_LLM_MODEL_NAME = self._get_config_value('JUDGE_LLM_MODEL_NAME', os.environ.get('JUDGE_LLM_MODEL_NAME', "gemini-2.0-flash"))
         self.K = self._get_config_value('K', int(os.environ.get('K', 10)))
         self.K_FALLBACK = self._get_config_value('K_FALLBACK', int(os.environ.get('K_FALLBACK', 10)))
-        self.SEARCH_TYPE = self._get_config_value('SEARCH_TYPE', os.environ.get('SEARCH_TYPE', "similarity"))
+        self.SEARCH_TYPE = self._get_config_value('SEARCH_TYPE', os.environ.get('SEARCH_TYPE', "similarity")) # For Chroma semantic search
         self.SCORE_THRESHOLD = self._get_config_value('SCORE_THRESHOLD', float(os.environ.get('SCORE_THRESHOLD', 0.5)))
-        self.INITIAL_RETRIEVAL_K = self._get_config_value('INITIAL_RETRIEVAL_K', int(os.environ.get('INITIAL_RETRIEVAL_K', 40)))
+        self.INITIAL_RETRIEVAL_K = self._get_config_value('INITIAL_RETRIEVAL_K', int(os.environ.get('INITIAL_RETRIEVAL_K', 20))) # Semantic K
         self.RERANK_TOP_N = self._get_config_value('RERANK_TOP_N', int(os.environ.get('RERANK_TOP_N', 10)))
         self.CHUNK_SIZE = self._get_config_value('CHUNK_SIZE', int(os.environ.get('CHUNK_SIZE', 1000)))
         self.CHUNK_OVERLAP = self._get_config_value('CHUNK_OVERLAP', int(os.environ.get('CHUNK_OVERLAP', 100)))
+
+        # New BM25 related configs
+        self.BM25_TOP_K = self._get_config_value('BM25_TOP_K', int(os.environ.get('BM25_TOP_K', 10)))
+        self.BM25_MAX_CORPUS_SIZE = self._get_config_value('BM25_MAX_CORPUS_SIZE', int(os.environ.get('BM25_MAX_CORPUS_SIZE', 10000)))
+
+        # New Murli Reconstruction Configs
+        self.RECONSTRUCT_MURLIS = False
+        self.MAX_RECON_MURLIS = self._get_config_value('MAX_RECON_MURLIS', int(os.environ.get('MAX_RECON_MURLIS', 5)))
+        # Max chunks to fetch for a single Murli
+        self.MAX_CHUNKS_PER_MURLI_RECON = self._get_config_value('MAX_CHUNKS_PER_MURLI_RECON', int(os.environ.get('MAX_CHUNKS_PER_MURLI_RECON', 20))) 
 
         # For USER_SESSIONS, make it an instance variable for better isolation in tests
         self.USER_SESSIONS = self._get_config_value('USER_SESSIONS', {})

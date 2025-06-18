@@ -2,7 +2,7 @@
 import os
 import sys
 from operator import itemgetter
-from typing import List, Optional # Added Optional
+from typing import List, Optional 
 from langchain_core.messages import ToolMessage
 from sentence_transformers import CrossEncoder
 from RAG_BOT.config import Config
@@ -21,27 +21,7 @@ def rerank_context_node(state: AgentState, reranker_model: CrossEncoder, app_con
     logger.info(f"Current query for reranking: '{current_query}'")
     messages = state.get('messages')
     last_message = messages[-1] if messages else None
-    logger.info(f"Last message type: {type(last_message)}")    
-    retrieved_docs_artifact = None
-    # # *** KEY CHANGE: Access the artifact from the last message ***
-    # if isinstance(last_message, ToolMessage) and hasattr(last_message, 'artifact'):
-    #     # Optional: Check if it's the correct tool message
-    #     if last_message.name == 'retrieve_context':
-    #         retrieved_docs_artifact = last_message.artifact
-    #         logger.info(f"Artifact received from tool '{last_message.name}': type {type(retrieved_docs_artifact)}")
-    #     else:
-    #         logger.error(f"Last message is a ToolMessage, but not from 'retrieve_context' (name: {last_message.name}). Skipping reranking.")
-    #         # Skip reranking if not from the correct tool
-    #         return {"context": None}
-    # else:
-    #     logger.warning(f"Last message is not a ToolMessage with an artifact (type: {type(last_message)}). Skipping reranking.")
-    #     return {"context": None}
-
-    # # Proceed only if we got a valid list artifact
-    # if not isinstance(retrieved_docs_artifact, list):
-    #     logger.error("No valid document list artifact found to rerank.")
-    #     # Set context to empty or None depending on desired downstream handling
-    #     return {"context": ""} # Or {"context": None}
+    logger.info(f"Last message type: {type(last_message)}")       
 
     if not retrieved_documents:
         logger.info("No documents found in state to rerank.")
@@ -61,13 +41,6 @@ def rerank_context_node(state: AgentState, reranker_model: CrossEncoder, app_con
 
     # Validate reranker and input
     if reranker_model is None:
-    #     logger.error("Reranker model not loaded. Concatenating original artifact docs.")
-    #     final_context = "\n\n".join(retrieved_docs_artifact)
-    #     return {"context": final_context}
-
-    # if not retrieved_docs_artifact:
-    #     logger.info("No documents in artifact to rerank.")
-    #     return {"context": ""}
         logger.warning("Reranker model not loaded. Concatenating original document contents.")
         final_context = "\n\n".join(doc_contents_for_reranking)
         # Return original documents as well, as no reranking happened
@@ -88,7 +61,7 @@ def rerank_context_node(state: AgentState, reranker_model: CrossEncoder, app_con
         logger.info(f"Selected top {len(reranked_doc_contents)} documents after reranking.")
         # Concatenate the final context
         final_context = "\n\n".join(reranked_doc_contents)
-        logger.info(f"Final reranked context snippet: {final_context[:400]}...")
+        logger.info(f"Final reranked context snippet: {final_context}...")
         # Update state with the final context
         # documents in state remains the larger pre-ranked set for now
         return {"context": final_context}
