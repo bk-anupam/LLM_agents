@@ -3,7 +3,6 @@ from collections import defaultdict
 import os
 import sys
 import datetime
-# shutil and re are no longer directly used by this class after refactoring
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -123,8 +122,8 @@ class VectorStore:
 
         # Extract date from the first document's metadata (assuming consistency for a single document/murli)
         doc_metadata = documents[0].metadata
-        extracted_date = doc_metadata.get('date') # Get the date string
-        extracted_language = doc_metadata.get('language') # Get the language string
+        extracted_date = doc_metadata.get('date') 
+        extracted_language = doc_metadata.get('language') 
         source_file = doc_metadata.get('source', 'N/A') # Get source for logging
 
         # 1. Check if document already exists using the helper method
@@ -268,7 +267,3 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Error during query execution: {e}", exc_info=True)
             return "Sorry, an error occurred while processing your query."    
-        
-
-# Standalone script functions (test_query_index, index_data) and
-# if __name__ == "__main__": block have been moved to RAG_BOT/vector_store_cli.py

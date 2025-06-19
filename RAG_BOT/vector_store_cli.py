@@ -64,7 +64,7 @@ if __name__ == "__main__":
     # For a real CLI, you might use argparse here to select actions.
     
     # To run indexing:
-    # index_data()
+    index_data()
 
     # To test querying (ensure data is indexed first):
     # test_query_index()

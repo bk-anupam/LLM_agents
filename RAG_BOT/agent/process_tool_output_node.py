@@ -1,15 +1,15 @@
 import json
 from langchain_core.messages import ToolMessage, HumanMessage
 from langchain_core.documents import Document
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from RAG_BOT.logger import logger
 from RAG_BOT.agent.state import AgentState
 
-def _convert_to_documents(doc_strings: List[str], metadata_list: Optional[List[Dict[str, Any]]] = None) -> List[Document]:
-    """Helper to convert list of strings to list of Documents."""
-    if metadata_list and len(doc_strings) == len(metadata_list):
-        return [Document(page_content=s, metadata=m) for s, m in zip(doc_strings, metadata_list)]
-    return [Document(page_content=s) for s in doc_strings]
+def _convert_to_documents(
+    doc_items: List[Tuple[str, Dict[str, Any]]] # Expects list of (content, metadata) tuples
+) -> List[Document]:
+    """Helper to convert list of (content, metadata) tuples to list of Documents."""
+    return [Document(page_content=content, metadata=meta) for content, meta in doc_items if isinstance(content, str)]
 
 
 def process_tool_output_node(state: AgentState) -> Dict[str, Any]:
@@ -37,41 +37,57 @@ def process_tool_output_node(state: AgentState) -> Dict[str, Any]:
     # Handle local retrieval
     if tool_name == "retrieve_context":
         logger.info("Processing retrieve_context tool output.")
-        doc_strings = last_message.artifact
-        if doc_strings:
-            updated_state.update({
-                "documents": _convert_to_documents(doc_strings),
-                "last_retrieval_source": "local",
-                "web_search_attempted": False
-            })
-            logger.info(f"Processed {len(doc_strings)} local documents retrieved using {tool_name} and updated agent state.")
-            return updated_state
-        else:
-            logger.warning("No documents were returned by retrieve_context tool. ")
-            updated_state.update({
-                "last_retrieval_source": "local",
-                "web_search_attempted": False # This attempt was local
-            })
-            # If no docs from local, prepare for potential agent_initial re-run for web search
-            if current_query:
-                 # Add a new HumanMessage to represent the query for the next agent_initial run
-                updated_state["messages"] = messages + [HumanMessage(content=current_query)]
-                logger.info(f"Appended HumanMessage for '{current_query}' for agent_initial re-run after local retrieval failure.")
+        # Artifact is now List[Tuple[str, Dict[str, Any]]]
+        doc_items_artifact: Optional[List[Tuple[str, Dict[str, Any]]]] = last_message.artifact
+        
+        if doc_items_artifact and isinstance(doc_items_artifact, list):
+            valid_doc_items = []
+            for item in doc_items_artifact:
+                if isinstance(item, tuple) and len(item) == 2 and \
+                   isinstance(item[0], str) and isinstance(item[1], dict):
+                    valid_doc_items.append(item)
+                else:
+                    logger.warning(f"Skipping invalid item in artifact from retrieve_context: {item}")
+
+            if valid_doc_items:
+                updated_state.update({
+                    "documents": _convert_to_documents(valid_doc_items), 
+                    "last_retrieval_source": "local_hybrid", 
+                    "web_search_attempted": False 
+                })
+                logger.info(f"Processed {len(valid_doc_items)} hybrid local documents retrieved using {tool_name} and updated agent state.")
+                return updated_state
             else:
-                logger.warning("current_query not found in state, cannot append HumanMessage for agent_initial re-run.")
-            return updated_state
+                logger.warning("Artifact from retrieve_context was empty or contained no valid (content, metadata) items.")
+        
+        logger.warning("No valid document items were returned by retrieve_context tool.")
+        updated_state.update({
+            "last_retrieval_source": "local_hybrid", 
+            "web_search_attempted": False
+        })
+        if current_query:
+            updated_state["messages"] = messages + [HumanMessage(content=current_query)]
+            logger.info(f"Appended HumanMessage for '{current_query}' for agent_initial re-run after local_hybrid retrieval failure.")
+        else:
+            logger.warning("current_query not found in state, cannot append HumanMessage for agent_initial re-run.")
+        return updated_state
     
     # Handle Tavily web search
     if tool_name and tool_name.startswith("tavily"):
+        # Convert Tavily output (list of strings or dicts) to Document objects
+        # For tavily-extract, tool_content is a string.
+        # For other tavily tools, tool_content is a JSON string of a list of dicts.
+        
+        tavily_docs_content: List[str] = []
+        tavily_docs_metadata: List[Dict[str, Any]] = []
+
         if tool_name == "tavily-extract":
             try:
                 logger.info(f"Processing {tool_name} tool output (string parsing for extracted content)")
                 logger.debug(f"Tool content for extraction: {tool_content}")
                 
                 extracted_text = ""
-                # Prioritize "Raw Content:" as it seems to contain the main body from logs
                 raw_content_marker = "Raw Content: "                
-                
                 raw_content_start_idx = tool_content.find(raw_content_marker)
                 if raw_content_start_idx != -1:
                     text_start_pos = raw_content_start_idx + len(raw_content_marker)
@@ -87,14 +103,8 @@ def process_tool_output_node(state: AgentState) -> Dict[str, Any]:
                         if url_end_idx == -1: url_end_idx = len(tool_content)
                         url = tool_content[url_text_start:url_end_idx].strip()
                     
-                    doc_metadata = {"source": url} if url else {}
-                    
-                    updated_state.update({
-                        "documents": _convert_to_documents([extracted_text], [doc_metadata] if doc_metadata else None),
-                        "last_retrieval_source": "web",
-                        "web_search_attempted": True
-                    })
-                    logger.info(f"Processed 1 document from {tool_name} (string parsing) and updated agent state.")
+                    tavily_docs_content.append(extracted_text)
+                    tavily_docs_metadata.append({"source": url} if url else {})
                 else:
                     logger.warning(f"Could not extract text from {tool_name} output using string parsing. Content: {tool_content}")
             except Exception as e:
@@ -106,33 +116,43 @@ def process_tool_output_node(state: AgentState) -> Dict[str, Any]:
                 search_results = json.loads(tool_content)
                 if not isinstance(search_results, list):
                     logger.warning(f"{tool_name} output was not a list after JSON parsing. Content: {tool_content}")
-                    if isinstance(search_results, dict): # Handle single dict result by wrapping in list
+                    if isinstance(search_results, dict): 
                         search_results = [search_results]
-                    else:
-                        return updated_state # No valid list or dict
+                    else: # Neither list nor dict, cannot process
+                        search_results = [] 
                     
-                docs_data = [(item.get("content") or item.get("snippet") or item.get("raw_content"),
-                             {k: v for k, v in item.items() 
-                              if k not in ["content", "raw_content", "snippet"]})
-                            for item in search_results if isinstance(item, dict)]
+                for item in search_results:
+                    if isinstance(item, dict):
+                        content = item.get("content") or item.get("snippet") or item.get("raw_content")
+                        if content:
+                            tavily_docs_content.append(content)
+                            metadata = {k: v for k, v in item.items() if k not in ["content", "raw_content", "snippet"]}
+                            tavily_docs_metadata.append(metadata)
                 
-                unzipped_data = [(c, m) for c, m in docs_data if c]
-                if not unzipped_data:
+                if not tavily_docs_content:
                     logger.info(f"No content extracted from {tool_name} search results after filtering.")
-                    return updated_state
-                
-                docs_content, docs_metadata = zip(*unzipped_data)
-                
-                if docs_content:
-                    updated_state.update({
-                        "documents": _convert_to_documents(list(docs_content), list(docs_metadata)),
-                        "last_retrieval_source": "web",
-                        "web_search_attempted": True
-                    })
-                    logger.info(f"Processed {len(docs_content)} documents from {tool_name} and updated agent state.")
             except json.JSONDecodeError as e:
                 logger.error(f"JSONDecodeError processing {tool_name} results: {e}. Content was: {tool_content}", exc_info=True)
             except Exception as e:
                 logger.error(f"Error processing Tavily results for {tool_name}: {e}", exc_info=True)
+        
+        if tavily_docs_content:
+            # Create Document objects from the extracted content and metadata
+            # Need to adapt _convert_to_documents or do it manually here
+            tavily_documents = [
+                Document(page_content=c, metadata=m) for c, m in zip(tavily_docs_content, tavily_docs_metadata)
+            ]
+            updated_state.update({
+                "documents": tavily_documents,
+                "last_retrieval_source": "web",
+                "web_search_attempted": True
+            })
+            logger.info(f"Processed {len(tavily_documents)} documents from {tool_name} (web) and updated agent state.")
+        else: # No content from Tavily tools
+            logger.warning(f"No document content extracted from Tavily tool {tool_name}.")
+            updated_state.update({ # Still mark the attempt
+                "last_retrieval_source": "web",
+                "web_search_attempted": True
+            })
             
     return updated_state
