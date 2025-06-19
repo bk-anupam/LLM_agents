@@ -61,7 +61,7 @@ def rerank_context_node(state: AgentState, reranker_model: CrossEncoder, app_con
         logger.info(f"Selected top {len(reranked_doc_contents)} documents after reranking.")
         # Concatenate the final context
         final_context = "\n\n".join(reranked_doc_contents)
-        logger.debug(f"Final reranked context snippet: {final_context[:1000]}...")
+        logger.info(f"Final reranked context snippet: {final_context[:1000]}...")
         # Update state with the final context
         # documents in state remains the larger pre-ranked set for now
         return {"context": final_context}
