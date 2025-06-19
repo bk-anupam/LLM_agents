@@ -1,12 +1,10 @@
 # This file is now primarily for running the agent directly if needed.
-# The core logic (state, prompts, nodes, graph builder) is in the RAG_BOT.agent package.
 import asyncio
 from langchain_chroma import Chroma
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_huggingface import HuggingFaceEmbeddings
 from RAG_BOT.config import Config
 from RAG_BOT.logger import logger
-# Import from the new agent package
 from RAG_BOT.agent.state import AgentState
 from RAG_BOT.agent.graph_builder import build_agent
 from RAG_BOT.utils import parse_json_answer 
@@ -37,8 +35,11 @@ if __name__ == '__main__':
             # Example run - User query no longer needs JSON instruction
             # user_question = "Can you summarize the murli from 1950-01-18?"
             # user_question = "Can you summarize the murli of 2025-06-06"
-            # user_question = "1969-01-18 की मुरली का सार क्या है? कृपया पुरुषार्थ के दृष्टिकोण से हिंदी भाषा में बताएं"
-            user_question = "2025-06-07 की मुरली का सार क्या है?"
+            # user_question = "भट्ठी की जो सारी पढ़ाई वा शिक्षा ली उसका सार कौन से तीन शब्दों में याद रखने के लिए बाबा ने मुरलियों में जोर दिया"
+            # user_question = "2025-06-07 की मुरली का सार क्या है?"
+            # user_question = "रिफाइन स्थिति की क्या पहचान बाबा ने 1972 में अव्यक्त मुरलियों में बताई है"
+            # user_question = "दूसरों की चेकिंग करने के बारे में बाबा ने मुरली में क्या बताया है?"
+            user_question = "त्याग तपस्या और सेवा की परिभाषा के बारे में बाबा ने मुरली में क्या कहा है "
             language_code = "hi"
 
             # Initialize state correctly
