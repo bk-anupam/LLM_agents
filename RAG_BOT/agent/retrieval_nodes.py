@@ -1,9 +1,6 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/agent/retrieval_nodes.py
-import os
-import sys
 from operator import itemgetter
 from typing import List, Optional 
-from langchain_core.messages import ToolMessage
 from sentence_transformers import CrossEncoder
 from RAG_BOT.config import Config
 from RAG_BOT.logger import logger
@@ -20,8 +17,6 @@ def rerank_context_node(state: AgentState, reranker_model: CrossEncoder, app_con
     retrieved_documents: Optional[List] = state.get('documents')
     logger.info(f"Current query for reranking: '{current_query}'")
     messages = state.get('messages')
-    last_message = messages[-1] if messages else None
-    logger.info(f"Last message type: {type(last_message)}")       
 
     if not retrieved_documents:
         logger.info("No documents found in state to rerank.")

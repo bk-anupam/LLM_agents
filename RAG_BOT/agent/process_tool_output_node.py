@@ -52,7 +52,7 @@ def process_tool_output_node(state: AgentState) -> Dict[str, Any]:
             if valid_doc_items:
                 updated_state.update({
                     "documents": _convert_to_documents(valid_doc_items), 
-                    "last_retrieval_source": "local_hybrid", 
+                    "last_retrieval_source": "local", 
                     "web_search_attempted": False 
                 })
                 logger.info(f"Processed {len(valid_doc_items)} hybrid local documents retrieved using {tool_name} and updated agent state.")
@@ -62,12 +62,12 @@ def process_tool_output_node(state: AgentState) -> Dict[str, Any]:
         
         logger.warning("No valid document items were returned by retrieve_context tool.")
         updated_state.update({
-            "last_retrieval_source": "local_hybrid", 
+            "last_retrieval_source": "local", 
             "web_search_attempted": False
         })
         if current_query:
             updated_state["messages"] = messages + [HumanMessage(content=current_query)]
-            logger.info(f"Appended HumanMessage for '{current_query}' for agent_initial re-run after local_hybrid retrieval failure.")
+            logger.info(f"Appended HumanMessage for '{current_query}' for agent_initial re-run after local retrieval failure.")
         else:
             logger.warning("current_query not found in state, cannot append HumanMessage for agent_initial re-run.")
         return updated_state
