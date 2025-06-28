@@ -103,12 +103,11 @@ def create_context_retriever_tool(vectordb: Chroma, config: Config) -> Callable:
         # 1. Semantic Search
         semantic_docs = RetrieverExecutor.execute_with_fallback(
             vectordb, normalized_query, search_kwargs, k_semantic, k_fallback, search_type, "semantic search"
-        )
-        logger.info(f"Semantic search retrieved {len(semantic_docs)} chunks.")
-        # to delete
-        # log all retrieved documents
+        )        
+        
         if semantic_docs:
-            logger.debug(f"Retrieved {len(semantic_docs)} semantic documents: {[doc.page_content for doc in semantic_docs]}")
+            logger.info(f"Semantic search retrieved {len(semantic_docs)} chunks.")
+            logger.debug(f"Content of semantic search: {[doc.page_content for doc in semantic_docs]}")
         
         # 2. BM25 Search (if filters present)
         bm25_results = []
@@ -117,9 +116,7 @@ def create_context_retriever_tool(vectordb: Chroma, config: Config) -> Callable:
             corpus_items = bm25_processor.get_scoped_corpus(search_kwargs["filter"], max_corpus_for_bm25)
             if corpus_items:
                 bm25_results = BM25Processor.search(normalized_query, corpus_items, k_bm25)
-                logger.info(f"BM25 search retrieved {len(bm25_results)} chunks.")
-                # to delete
-                # Log content of BM25 results
+                logger.info(f"BM25 search retrieved {len(bm25_results)} chunks.")                
                 logger.debug(f"BM25 results: {[item[0] for item in bm25_results]}")  
         
         # 3. Combine results
