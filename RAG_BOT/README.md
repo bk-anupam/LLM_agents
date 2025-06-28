@@ -55,7 +55,7 @@ This graph-based approach allows the agent to dynamically decide its path, evalu
 
 ### Workflow Diagram
 
-The following diagram visualizes the agent's workflow (note: the diagram should be updated to reflect the new reranking step between retrieval and evaluation):
+The following diagram visualizes the agent's workflow :
 
 ![Agent Workflow](rag_agent_graph.png)
 ## Setup
