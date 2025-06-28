@@ -6,11 +6,12 @@ This project implements a Telegram bot powered by a Retrieval-Augmented Generati
 
 *   **Telegram Interface:** Interact with the RAG agent directly through Telegram.
 *   **RAG Pipeline:** Utilizes a sophisticated LangGraph agent for:
-    *   Retrieving relevant context from spiritual documents based on user queries.
+    *   **Hybrid Search:** Combines semantic and lexical search for comprehensive context retrieval from local documents.
+    *   **Web Search Fallback:** Automatically uses Tavily tools to search the web if local retrieval yields insufficient context.
     *   **Reranking** retrieved context using a CrossEncoder model for improved relevance.
     *   Evaluating the relevance of retrieved context.
     *   Reframing the user's query if the initial context is insufficient.
-    *   Generating answers (in a structured JSON format) grounded in the retrieved documents using Google's Gemini models.
+    *   Generating answers (in a structured JSON format) grounded in the retrieved documents (local or web) using Google's Gemini models.
 *   **Vector Store:** Uses ChromaDB to store and query document embeddings.
 *   **Document Indexing:**
     *   Upload PDF and HTM documents directly to the Telegram bot for automatic indexing.
@@ -34,18 +35,21 @@ This project implements a Telegram bot powered by a Retrieval-Augmented Generati
 *   **pyTelegramBotAPI:** Library for interacting with the Telegram Bot API.
 *   **Flask:** Web framework for handling Telegram webhooks.
 *   **Gunicorn:** WSGI HTTP server for running the Flask application.
+*   **Tavily MCP:** Used for web search capabilities when local retrieval is insufficient.
 
 ## How It Works
 
-Think of the bot as an intelligent assistant that uses a specific process to answer your questions, especially those about the indexed spiritual documents. Here's the flow:
+Think of the bot as an intelligent assistant that uses a specific process to answer your questions, especially those about the indexed spiritual documents. The agent maintains an internal **AgentState** (a conversational state) that tracks the original query, current query, retrieved documents, evaluation results, and whether web search has been attempted, allowing it to make informed decisions throughout the workflow. Here's the flow:
 
 1.  **Query Analysis:** First, the agent analyzes your question. Does it need to consult the documents, or is it a general question it already knows?
-2.  **Smart Retrieval:** If documents are needed, it searches the knowledge base (ChromaDB) for the most relevant snippets based on your query.
+2.  **Smart Retrieval (Hybrid Search):** If documents are needed, the agent performs a hybrid search, combining **semantic search** (using embeddings in ChromaDB) and **lexical search** (using BM25) on the local knowledge base to find the most relevant snippets based on your query.
 3.  **Relevance Check:** The agent doesn't just blindly use what it finds. It evaluates if the retrieved information *actually* helps answer your original question.
 4.  **Context Reranking:** The initially retrieved documents are then reranked using a more sophisticated model (CrossEncoder) to further refine the context and bring the most relevant passages to the top.
 5.  **Relevance Evaluation (Post-Reranking):** The agent evaluates if the *reranked* context is sufficient to answer the original question.
-6.  **Self-Correction Loop:** If the reranked context is still not good enough, the agent smartly rephrases the query and tries searching (and reranking) again – a built-in retry mechanism for better results.
-7.  **Grounded Generation:** Finally, using the validated and reranked context, the agent generates a clear answer in a structured JSON format. If no relevant context is found even after the retry, it informs the user gracefully (also in JSON format).
+6.  **Self-Correction Loop & Web Search Fallback:**
+    *   If the reranked context from the local vector store is still not good enough, the agent smartly rephrases the query and attempts to retrieve information from the web using **Tavily tools**. This acts as a built-in retry mechanism for better results.
+    *   This web search is specifically triggered when local retrieval fails to provide sufficient context, ensuring the agent tries external sources before giving up.
+7.  **Grounded Generation:** Finally, using the validated and reranked context (from either local documents or web search), the agent generates a clear answer in a structured JSON format. If no relevant context is found even after all attempts, it informs the user gracefully (also in JSON format).
 
 This graph-based approach allows the agent to dynamically decide its path, evaluate its own findings, and even self-correct, leading to more accurate and relevant answers.
 
@@ -83,6 +87,9 @@ The following diagram visualizes the agent's workflow (note: the diagram should 
     # Google Gemini
     GEMINI_API_KEY="YOUR_GOOGLE_API_KEY"
 
+    # Tavily (for web search fallback)
+    TAVILY_API_KEY="YOUR_TAVILY_API_KEY"
+
     # Paths (adjust if needed)
     VECTOR_STORE_PATH="./chroma_db"       # Default path for ChromaDB
     DATA_PATH="./data"                    # Directory for documents to be indexed on startup
@@ -90,16 +97,23 @@ The following diagram visualizes the agent's workflow (note: the diagram should 
 
     # Agent/Model Config (adjust defaults in config.py or override here)
     # LLM_MODEL_NAME="gemini-1.5-flash-latest" # Or another compatible Gemini model
+    # JUDGE_LLM_MODEL_NAME="gemini-1.5-flash-latest" # LLM for evaluating context/responses
     # EMBEDDING_MODEL_NAME="all-MiniLM-L6-v2"
     # RERANKER_MODEL_NAME="cross-encoder/ms-marco-MiniLM-L-6-v2" # Or other CrossEncoder model
     # TEMPERATURE=0.1
-    # INITIAL_RETRIEVAL_K=20 # Number of documents to initially retrieve before reranking
+    # INITIAL_RETRIEVAL_K=20 # Number of documents to initially retrieve before reranking (semantic)
+    # BM25_TOP_K=10          # Number of documents to retrieve using BM25 (lexical)
+    # BM25_MAX_CORPUS_SIZE=10000 # Max corpus size for BM25 indexing
     # RERANK_TOP_N=5         # Number of documents to keep after reranking
-    # SEARCH_TYPE="similarity" # Or "mmr"
+    # SEARCH_TYPE="similarity" # Or "mmr" (for ChromaDB semantic search)
     # SEMANTIC_CHUNKING=True # Or False
     # LANGUAGE="en" # Default language for the bot (e.g., 'en', 'hi')
     # LOG_LEVEL="INFO"
     # MAX_CONVERSATION_HISTORY=10
+    # MAX_RECON_MURLIS=5 # Max Murlis to reconstruct from chunks
+    # MAX_CHUNKS_PER_MURLI_RECON=20 # Max chunks to fetch for a single Murli reconstruction
+    # MAX_CHUNKS_FOR_DATE_FILTER=40 # Max chunks to consider for date filtering
+    # ASYNC_OPERATION_TIMEOUT=60 # Timeout for async operations in seconds
     # PORT=5000 # Port for Flask app
     ```
     *   Replace placeholders with your actual credentials and desired settings.
