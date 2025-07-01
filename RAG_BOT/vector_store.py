@@ -22,9 +22,8 @@ class VectorStore:
         # Initialize the embedding model once.
         self.embeddings = HuggingFaceEmbeddings(model_name=self.config.EMBEDDING_MODEL_NAME)
         logger.info("Embedding model initialized successfully.")
-        # Create or load the Chroma vector database.
-        # Added more robust error handling and directory creation
-        os.makedirs(self.persist_directory, exist_ok=True) # Ensure directory exists before checking content
+        # Create or load the Chroma vector database.        
+        os.makedirs(self.persist_directory, exist_ok=True)
         if os.path.exists(self.persist_directory) and os.listdir(self.persist_directory):
             try:
                 self.vectordb = Chroma(persist_directory=self.persist_directory, embedding_function=self.embeddings)
@@ -34,7 +33,7 @@ class VectorStore:
                 # Consider if creating a new one is the right fallback or if it should raise
                 logger.warning(f"Attempting to create a new vector store at {self.persist_directory} due to loading error.")
                 try:
-                    # Attempt to create anew if loading failed (might indicate corruption)
+                    # Attempt to create a new if loading failed (might indicate corruption)
                     self.vectordb = Chroma(persist_directory=self.persist_directory, embedding_function=self.embeddings)
                     logger.info("New vector store created after load failure.")
                 except Exception as inner_e:
@@ -105,7 +104,8 @@ class VectorStore:
                 logger.debug(f"No document found with date {date_str} and language {language}.")
                 return False
         except Exception as e:
-            logger.error(f"Error checking ChromaDB for existing date {date_str} and language {language}: {e}. Assuming document does not exist.", exc_info=True)
+            logger.error(f"Error checking ChromaDB for existing date {date_str} and language {language}: {e}. "
+                         f"Assuming document does not exist.", exc_info=True)
             # Decide how to handle errors - returning False assumes it doesn't exist, allowing indexing to proceed.
             return False
 
@@ -160,9 +160,7 @@ class VectorStore:
             logger.error(f"Error during chunking or adding documents for {os.path.basename(source_file)}: {e}", exc_info=True)
             return False # Indicate failure
 
-    # _move_indexed_file method has been removed as its logic is now in FileManager.
-    # index_directory method has been removed as its logic is now in DocumentIndexer.
-
+    
     def log_all_indexed_metadata(self):
         """
         Retrieves and logs the date, is_avyakt, and language metadata for ALL indexed documents.
@@ -212,26 +210,34 @@ class VectorStore:
             logger.error(f"Error retrieving all metadata from ChromaDB: {e}", exc_info=True)
     
 
-    def query_index(self, query, chain_type="stuff", k=25, model_name="gemini-2.0-flash", date_filter=None):
+    def query_index(self, query, k=25, date_filter=None, language: str = None):
         # Ensure vectordb is initialized
         if not hasattr(self, 'vectordb') or self.vectordb is None:
             logger.error("VectorDB not initialized. Cannot perform query.")
             return "Error: Vector Store is not available."
-
-        llm = ChatGoogleGenerativeAI(model=model_name, temperature=0.3)
+        
         search_kwargs = {"k": k}
+        filter_dict = {}
 
+        # Build filter for date
         if date_filter:
             try:
                 filter_date = datetime.datetime.strptime(date_filter, '%Y-%m-%d')
                 formatted_date = filter_date.strftime('%Y-%m-%d')
                 logger.info(f"Applying date filter: {formatted_date}")
-                # Use Chroma's metadata filtering syntax
-                search_kwargs["filter"] = {"date": formatted_date}
+                filter_dict["date"] = formatted_date
             except ValueError:
                 logger.error(f"Invalid date format provided: {date_filter}. Should be YYYY-MM-DD.")
-                # Return an error or raise? Returning error message for now.
                 return "Error: Invalid date format for filter. Please use YYYY-MM-DD."
+        
+        # Build filter for language
+        if language:
+            logger.info(f"Applying language filter: {language}")
+            filter_dict["language"] = language
+
+        # If any filter is set, add to search_kwargs
+        if filter_dict:
+            search_kwargs["filter"] = filter_dict
 
         try:
             retriever = self.vectordb.as_retriever(
@@ -240,30 +246,9 @@ class VectorStore:
             )
             retrieved_docs = retriever.invoke(query)
             context = "\n\n".join([doc.page_content for doc in retrieved_docs])
-            logger.info(f"Retrieved {len(retrieved_docs)} documents for query: '{query[:50]}...'") # Log snippet
-            logger.debug(f"Context for LLM: {context}") # Log snippet
-
-            custom_prompt = PromptTemplate(
-                input_variables=["context", "question"],
-                template=(
-                    self.config.get_system_prompt(language_code="en") + # Call on instance and provide language_code
-                    "\n\nContext:\n{context}\n\nQuestion: {question}" # Added newlines for clarity
-                ),
-            )
-            chain = custom_prompt | llm | RunnablePassthrough() # Removed RunnablePassthrough, not needed here
-            response = chain.invoke({"context": context, "question": query})
-
-            if isinstance(response, AIMessage):
-                return response.content
-            # Handle potential string or other types returned by the chain
-            elif isinstance(response, str):
-                 return response
-            elif hasattr(response, 'content'): # Check for Langchain Core message types
-                 return response.content
-            else:
-                 logger.warning(f"Unexpected response type from LLM chain: {type(response)}")
-                 return str(response) # Fallback to string representation
-
+            logger.info(f"Retrieved {len(retrieved_docs)} documents for query: '{query[:50]}...'")
+            logger.debug(f"Context for LLM: {context}")
+            return context if context else "No relevant documents found for the query."
         except Exception as e:
             logger.error(f"Error during query execution: {e}", exc_info=True)
-            return "Sorry, an error occurred while processing your query."    
+            return "Sorry, an error occurred while processing your query."
