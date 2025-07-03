@@ -68,8 +68,7 @@ class TelegramBotApp:
         logger.info("Initializing RAG agent and MessageHandler in dedicated loop...")
         # When this coroutine is run via run_coroutine_threadsafe on self.loop,
         # `await build_agent` will execute within self.loop's context.
-        self.agent = await build_agent(vectordb=vectordb_for_agent, config_instance=config_for_agent, 
-                                       model_name=config_for_agent.LLM_MODEL_NAME)
+        self.agent = await build_agent(vectordb=vectordb_for_agent, config_instance=config_for_agent)
         # MessageHandler itself is sync
         self.handler = MessageHandler(agent=self.agent, config=self.config) 
         logger.info("RAG agent and MessageHandler initialized successfully using dedicated loop.")

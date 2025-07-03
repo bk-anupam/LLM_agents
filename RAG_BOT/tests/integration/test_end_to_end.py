@@ -173,7 +173,7 @@ class TestEndToEnd(unittest.TestCase):
             logger.info("VectorStore initialized.")
 
             logger.info("Initializing RAG agent for E2E test...")
-            agent = build_agent(vectordb=vectordb, model_name=cls.config.LLM_MODEL_NAME)
+            agent = build_agent(vectordb=vectordb, config_instance=cls.config)
             logger.info("RAG agent initialized.")
 
             logger.info("Initializing MessageHandler for E2E test...")

@@ -101,9 +101,9 @@ async def force_web_search_node(state: AgentState) -> Dict[str, Any]:
 
 # --- Helper Functions for Graph Building ---
 
-def _initialize_llm_and_reranker(config_instance: Config, model_name: Optional[str]):
+def _initialize_llm_and_reranker(config_instance: Config):
     """Initializes the LLM and reranker model."""
-    effective_model_name = model_name or config_instance.LLM_MODEL_NAME
+    effective_model_name = config_instance.LLM_MODEL_NAME
     llm = ChatGoogleGenerativeAI(model=effective_model_name, temperature=config_instance.TEMPERATURE)
     logger.info(f"LLM model '{effective_model_name}' initialized with temperature {config_instance.TEMPERATURE}.")
 
@@ -200,9 +200,9 @@ def _define_edges_for_graph(builder: StateGraph):
 
 
 # --- Graph Builder ---
-async def build_agent(vectordb: Chroma, config_instance: Config, model_name: Optional[str] = None) -> StateGraph:
+async def build_agent(vectordb: Chroma, config_instance: Config) -> StateGraph:
     """Builds the multi-node LangGraph agent."""
-    llm, reranker_model = _initialize_llm_and_reranker(config_instance, model_name)
+    llm, reranker_model = _initialize_llm_and_reranker(config_instance)
     ctx_retriever_tool_instance, available_tools = await _prepare_tools(vectordb, config_instance) 
     llm_with_tools = llm.bind_tools(available_tools)
 

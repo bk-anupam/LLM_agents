@@ -45,7 +45,7 @@ class TestIntegration(unittest.TestCase):
         cls.test_vector_store = cls.setup_test_environment(cls.config)
         cls.vectordb = cls.test_vector_store.get_vectordb()
         # Build agent once for the class
-        cls.agent = build_agent(vectordb=cls.vectordb, config_instance=cls.config, model_name=cls.config.LLM_MODEL_NAME)
+        cls.agent = build_agent(vectordb=cls.vectordb, config_instance=cls.config)
 
 
     @classmethod
