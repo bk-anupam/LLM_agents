@@ -1,7 +1,7 @@
 import asyncio
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langsmith import Client, aevaluate
-from langsmith.evaluation import LangChainStringEvaluator, EvaluationResult
+from langsmith.evaluation import LangChainStringEvaluator
 from langsmith.schemas import Run, Example 
 from langdetect import detect
 from RAG_BOT.agent.graph_builder import build_agent
@@ -11,9 +11,8 @@ from RAG_BOT.logger import logger
 from RAG_BOT.agent.state import AgentState
 from langchain_core.messages import HumanMessage, AIMessage
 from RAG_BOT.utils import parse_json_answer
-from openevals.prompts import HALLUCINATION_PROMPT
-from openevals.llm import create_llm_as_judge
-from pydantic import BaseModel, Field
+from RAG_BOT.evaluation.hallucination_eval import hallucination_evaluator
+from RAG_BOT.evaluation.retrieval_relevance_eval import retrieval_relevance_evaluator
 
 ls_client = Client()
 dataset_name = "eval_rag_bot_dataset"
@@ -29,48 +28,6 @@ async def get_rag_agent(config: Config = None):
     logger.info("RAG agent initialized.")            
     return agent
 
-class HallucinationEvaluation(BaseModel):
-    score: float = Field(description="A score indicating the degree of hallucination.")
-    reasoning: str = Field(description="Explanation for the hallucination score.")
-
-# Create the evaluator instance once for efficiency.
-_hallucination_evaluator_instance = create_llm_as_judge(
-    prompt=HALLUCINATION_PROMPT,
-    judge=ChatGoogleGenerativeAI(model=config.JUDGE_LLM_MODEL_NAME, temperature=0),
-    feedback_key="hallucination",
-    output_schema=HallucinationEvaluation,
-)
-
-def hallucination_evaluator(run: Run, example: Example):
-    """
-    Custom evaluator to measure hallucination using an LLM judge.
-    It extracts the necessary components from the run and example objects.
-    """
-    # The `inputs` for the prompt is the question.
-    input_dict = run.inputs.get("inputs") if run.inputs else {}
-    # check if input_dict is not None and has 'question' key
-    if input_dict and 'question' in input_dict:
-        input_for_prompt = input_dict['question']
-    else:
-        input_for_prompt = None
-        
-    output_for_prompt = run.outputs.get("answer") if run.outputs else None    
-    context_for_prompt = run.outputs.get("context") if run.outputs else None    
-    reference_for_prompt = example.outputs.get("answer") if example and example.outputs else None    
-    
-    eval_output = _hallucination_evaluator_instance(
-        inputs=input_for_prompt,
-        outputs=output_for_prompt,
-        reference_outputs=reference_for_prompt,
-        context=context_for_prompt
-    )
-    # eval_output is an instance of HallucinationEvaluation 
-    # we need to convert it to EvaluationResult for compatibility with LangSmith
-    return EvaluationResult(
-        key="hallucination",
-        score=eval_output.score,
-        comment=eval_output.reasoning,
-    )
 
 def prepare_langchain_eval_data(run: Run, example: Example):
     """Prepares data for the LangChainStringEvaluator to specify which keys to use."""
@@ -133,7 +90,7 @@ async def evaluate_rag_agent(config: Config):
     results = await aevaluate(
         eval_fn,
         data=dataset_name,
-        evaluators=[cot_qa_evaluator, hallucination_evaluator],
+        evaluators=[cot_qa_evaluator, hallucination_evaluator, retrieval_relevance_evaluator],
         client=ls_client
     )
     return results
