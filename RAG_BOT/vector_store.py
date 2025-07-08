@@ -5,10 +5,6 @@ import sys
 import datetime
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.schema import HumanMessage, AIMessage
-from langchain.prompts import PromptTemplate
-from langchain.schema.runnable import RunnablePassthrough
 from RAG_BOT.logger import logger
 from RAG_BOT.config import Config
 from RAG_BOT.document_processor import DocumentProcessor
@@ -245,9 +241,30 @@ class VectorStore:
                 search_kwargs=search_kwargs
             )
             retrieved_docs = retriever.invoke(query)
-            context = "\n\n".join([doc.page_content for doc in retrieved_docs])
-            logger.info(f"Retrieved {len(retrieved_docs)} documents for query: '{query[:50]}...'")
-            logger.debug(f"Context for LLM: {context}")
+            if not retrieved_docs:
+                logger.info("No relevant documents found for the query.")
+                return "No relevant documents found for the query."
+
+            # --- Group by (date, language) and sort by seq_no ---
+            from collections import defaultdict
+
+            murli_groups = defaultdict(list)
+            for doc in retrieved_docs:
+                date = doc.metadata.get('date', 'N/A')
+                lang = doc.metadata.get('language', 'N/A')
+                seq_no = doc.metadata.get('seq_no', None)
+                murli_groups[(date, lang)].append((seq_no, doc))
+
+            context = ""
+            for (date, lang), chunks in murli_groups.items():
+                # Sort by seq_no (handle None gracefully)
+                sorted_chunks = sorted(chunks, key=lambda x: (x[0] if x[0] is not None else 0))
+                # logger.info(f"Document Date: {date}, Language: {lang}")
+                context += f"Document Date: {date}, Language: {lang}\n"
+                for seq_no, doc in sorted_chunks:
+                    # logger.info(f"Chunk {seq_no}:\n{doc.page_content}\n\n")
+                    context += f"Chunk {seq_no}:\n{doc.page_content}\n\n"
+            logger.info(f"Context for LLM:\n{context}")
             return context if context else "No relevant documents found for the query."
         except Exception as e:
             logger.error(f"Error during query execution: {e}", exc_info=True)

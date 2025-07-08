@@ -15,14 +15,15 @@ def test_query_index():
     config = Config() # Create a config instance
     # Initialize with the actual VectorStore class
     vs = VectorStore(persist_directory=config.VECTOR_STORE_PATH, config=config)
-    query = "दूसरों की चेकिंग करने के बारे में बाबा ने मुरली में क्या बताया है?"
-    test_date = "1992-09-24" 
-    logger.info(f"Testing query with date filter: {test_date}")
+    # query = "दूसरों की चेकिंग करने के बारे में बाबा ने मुरली में क्या बताया है?"
+    # query = "भट्ठी की जो सारी पढ़ाई वा शिक्षा ली उसका सार कौन से तीन शब्दों में याद रखने के लिए बाबा ने मुरलियों में जोर दिया"
+    query = "संगमयुगी ब्राह्मण जीवन में पवित्रता का महत्त्व क्या है?"
+    # query = "What did Baba say about checking others in the Murlis?"
+    test_date = None
+    language = "hi"
+    logger.info(f"Testing query: {query} with date filter: {test_date} and language: {language}")
     try:
-        result = vs.query_index(query, k=10, date_filter=test_date)
-        print("\n--- Query Result ---")
-        print(result)
-        print("--- End Query Result ---\n")
+        result = vs.query_index(query, language=language, date_filter=test_date)        
     except ValueError as e:
         logger.error(f"Query failed: {e}")
     except Exception as e:
@@ -64,12 +65,12 @@ if __name__ == "__main__":
     # For a real CLI, you might use argparse here to select actions.
     
     # To run indexing:
-    index_data()
+    # index_data()
 
     # To test querying (ensure data is indexed first):
-    # test_query_index()
+    test_query_index()
 
     # To log all metadata (ensure data is indexed first):
-    config_instance_for_logging = Config()
-    vs = VectorStore(config=config_instance_for_logging)
-    vs.log_all_indexed_metadata()
+    # config_instance_for_logging = Config()
+    # vs = VectorStore(config=config_instance_for_logging)
+    # vs.log_all_indexed_metadata()
