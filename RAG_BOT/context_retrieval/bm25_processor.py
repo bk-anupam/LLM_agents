@@ -68,9 +68,15 @@ class BM25Processor:
             scored_items = list(zip(doc_scores, corpus_items))
             scored_items.sort(key=itemgetter(0), reverse=True)
             
-            results = [item for score, item in scored_items[:k] if score > 0]
+            results = []
+            # Unpack the item tuple into content and metadata
+            for score, (content, metadata) in scored_items[:k]:
+                if score > 0:
+                    # Add the retrieval_type to the metadata dictionary
+                    metadata['retrieval_type'] = 'bm25'
+                    results.append((content, metadata))
             
-            logger.info(f"BM25: Retrieved {len(results)} documents with scores > 0.")
+            logger.info(f"BM25: Retrieved {len(results)} documents with scores > 0 and added 'retrieval_type' metadata.")
             if results:
                 logger.debug(f"BM25: Top {len(results)} results: {[item[0][:100] for item in results]}")
             

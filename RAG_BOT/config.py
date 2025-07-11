@@ -62,8 +62,8 @@ class Config:
         self.SCORE_THRESHOLD = self._get_config_value('SCORE_THRESHOLD', float(os.environ.get('SCORE_THRESHOLD', 0.5)))
         self.INITIAL_RETRIEVAL_K = self._get_config_value('INITIAL_RETRIEVAL_K', int(os.environ.get('INITIAL_RETRIEVAL_K', 20))) # Semantic K
         self.RERANK_TOP_N = self._get_config_value('RERANK_TOP_N', int(os.environ.get('RERANK_TOP_N', 10)))
-        self.CHUNK_SIZE = self._get_config_value('CHUNK_SIZE', int(os.environ.get('CHUNK_SIZE', 1000)))
-        self.CHUNK_OVERLAP = self._get_config_value('CHUNK_OVERLAP', int(os.environ.get('CHUNK_OVERLAP', 100)))
+        self.CHUNK_SIZE = self._get_config_value('CHUNK_SIZE', int(os.environ.get('CHUNK_SIZE', 512)))
+        self.CHUNK_OVERLAP = self._get_config_value('CHUNK_OVERLAP', int(os.environ.get('CHUNK_OVERLAP', 0)))
 
         # New BM25 related configs
         self.BM25_TOP_K = self._get_config_value('BM25_TOP_K', int(os.environ.get('BM25_TOP_K', 10)))
@@ -74,6 +74,13 @@ class Config:
         self.MAX_RECON_MURLIS = self._get_config_value('MAX_RECON_MURLIS', int(os.environ.get('MAX_RECON_MURLIS', 5)))
         # Max chunks to fetch for a single Murli
         self.MAX_CHUNKS_PER_MURLI_RECON = self._get_config_value('MAX_CHUNKS_PER_MURLI_RECON', int(os.environ.get('MAX_CHUNKS_PER_MURLI_RECON', 20))) 
+
+        # Sentence window reconstruction
+        self.SENTENCE_WINDOW_RECONSTRUCTION = self._get_config_value(
+            'SENTENCE_WINDOW_RECONSTRUCTION', 
+             os.environ.get('SENTENCE_WINDOW_RECONSTRUCTION', 'True').lower() in ('true', '1', 't')
+        )
+        self.SENTENCE_WINDOW_SIZE = self._get_config_value('SENTENCE_WINDOW_SIZE', int(os.environ.get('SENTENCE_WINDOW_SIZE', 2)))
 
         # For USER_SESSIONS, make it an instance variable for better isolation in tests
         self.USER_SESSIONS = self._get_config_value('USER_SESSIONS', {})

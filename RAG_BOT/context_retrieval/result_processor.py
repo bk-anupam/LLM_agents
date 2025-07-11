@@ -1,4 +1,4 @@
-from collections import Counter
+from collections import Counter, defaultdict
 from langchain_chroma import Chroma
 from typing import Optional, Dict, Any, List, Tuple 
 from RAG_BOT.logger import logger
@@ -145,5 +145,109 @@ class ResultProcessor:
         representative_metadata.pop('seq_no', None)
         representative_metadata['reconstructed'] = True
         
-        logger.info(f"Successfully reconstructed Murli from {len(chunk_items)} chunks.")
+        logger.debug(f"Successfully reconstructed context from {len(chunk_items)} chunks.")
         return (full_content, representative_metadata)
+
+
+    def _extract_murli_identifier(self, meta: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+        """Extracts a single (date, language) identifier from metadata."""
+        if meta.get("date") and meta.get("language"):
+            return (meta["date"], meta["language"])
+        return None
+
+
+    def reconstruct_from_sentence_windows(
+        self,
+        chunk_metadatas: List[Dict[str, Any]],
+        vectordb: Chroma,
+        config: Config
+    ) -> List[Tuple[str, Dict[str, Any]]]:
+        """
+        Reconstructs a context window around EACH retrieved chunk.
+        For each chunk in the input, it fetches a window of surrounding chunks
+        (e.g., 2 before and 2 after) from the same document and assembles them
+        into a single, larger context string.
+        """
+        if not chunk_metadatas:
+            logger.info("No chunk metadata provided for sentence window reconstruction.")
+            return []
+
+        window_size = config.SENTENCE_WINDOW_SIZE
+        logger.info(f"Reconstructing context using sentence window size: {window_size}")
+        
+        # Dictionary of dictionaries where outer key is (date, language) and inner key is seq_no, inner value is retrieval_type
+        murli_retrieval_info = defaultdict(dict)
+        for meta in chunk_metadatas:
+            identifier = self._extract_murli_identifier(meta)
+            if identifier and 'seq_no' in meta:
+                # Map seq_no to its retrieval_type for this Murli
+                murli_retrieval_info[identifier][meta['seq_no']] = meta.get('retrieval_type')
+
+        # Pre-fetch all chunks for each relevant Murli to avoid multiple DB calls
+        all_murli_chunks_map = {}
+        for identifier in murli_retrieval_info.keys():
+            date_val, lang_val = identifier
+            try:
+                # This is a single DB call per Murli
+                chunks_data = vectordb.get(
+                    where={"$and": [{"date": date_val}, {"language": lang_val}]},
+                    include=["documents", "metadatas"],
+                    limit=config.MAX_CHUNKS_PER_MURLI_RECON # Safeguard
+                )
+                processed_chunks = self._process_chunks_data(chunks_data, date_val, lang_val)
+                if processed_chunks:
+                    all_murli_chunks_map[identifier] = processed_chunks
+            except Exception as e:
+                logger.error(f"Failed to pre-fetch chunks for Murli {identifier}: {e}", exc_info=True)
+
+        reconstructed_contexts = []
+        for identifier, retrieved_seq_info in murli_retrieval_info.items():
+            murli_total_chunks = all_murli_chunks_map.get(identifier)
+            if not murli_total_chunks:
+                logger.warning(f"No chunks available in map for Murli {identifier}. Skipping.")
+                continue
+
+            # For each originally retrieved chunk, build its window from the pre-fetched data
+            for seq_no, retrieval_type in retrieved_seq_info.items():
+                min_seq_window = max(1, seq_no - window_size)
+                max_seq_window = seq_no + window_size
+                
+                logger.debug(f"Creating window for Murli {identifier}, center seq_no: {seq_no}, range: [{min_seq_window}, {max_seq_window}]")
+
+                # Filter the pre-fetched chunks for this specific window
+                window_chunks = [
+                    chunk for chunk in murli_total_chunks 
+                    if min_seq_window <= chunk['seq_no'] <= max_seq_window
+                ]
+
+                if not window_chunks:
+                    continue
+
+                # Assemble this specific window into a single context string
+                assembled_context = self._assemble_murli(window_chunks)
+
+                if assembled_context:
+                    # The retrieval_type for the center chunk was preserved and is available
+                    # in the 'retrieval_type' variable from our loop.
+                    assembled_context = (assembled_context[0], {**assembled_context[1], 'retrieval_type': retrieval_type})
+                    reconstructed_contexts.append(assembled_context)
+
+        # Sort contexts by length (descending) to prioritize larger, more comprehensive contexts.
+        reconstructed_contexts.sort(key=lambda item: len(item[0]), reverse=True)
+
+        # Deduplicate contexts, discarding any that are fully contained within a larger one.        
+        final_unique_contexts = []
+        for content, meta in reconstructed_contexts:
+            is_substring = False
+            # Check if the current content is a substring of any already added (and longer) context.
+            for existing_content, _ in final_unique_contexts:
+                if content in existing_content:
+                    is_substring = True
+                    logger.info(f"Discarding redundant context of length {len(content)}, metadata: {meta}, "
+                                f"as as it is contained in a larger context.")
+                    break
+            if not is_substring:
+                final_unique_contexts.append((content, meta))
+
+        logger.info(f"Reconstructed {len(final_unique_contexts)} unique context windows from {len(chunk_metadatas)} initial chunks.")
+        return final_unique_contexts

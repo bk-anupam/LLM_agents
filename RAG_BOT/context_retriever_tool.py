@@ -36,6 +36,11 @@ class RetrieverExecutor:
                     retriever = vectordb.as_retriever(search_type=search_type, search_kwargs=current_args)
                     docs = retriever.invoke(query)
                     
+                    # Add retrieval_type to metadata for downstream processing to distinguish
+                    # how the document was retrieved (e.g., 'semantic' vs 'bm25').
+                    for doc in docs:
+                        doc.metadata['retrieval_type'] = 'semantic'
+
                     logger.info(f"{description} retrieved {len(docs)} docs.")
                     return docs
                     
@@ -98,11 +103,12 @@ def create_context_retriever_tool(vectordb: Chroma, config: Config) -> Callable:
         
         # Prepare filters
         search_kwargs, active_date = FilterProcessor.prepare_filters(date_filter, language)
+        semantic_query = query.strip()
         normalized_query = query.strip().lower()
         
         # 1. Semantic Search
         semantic_docs = RetrieverExecutor.execute_with_fallback(
-            vectordb, normalized_query, search_kwargs, k_semantic, k_fallback, search_type, "semantic search"
+            vectordb, semantic_query, search_kwargs, k_semantic, k_fallback, search_type, "semantic search"
         )        
         
         if semantic_docs:
@@ -127,8 +133,21 @@ def create_context_retriever_tool(vectordb: Chroma, config: Config) -> Callable:
             logger.info(status_msg)
             return status_msg, []        
         
-        # 4. Return chunks or reconstruct Murlis based on flag
-        if not config.RECONSTRUCT_MURLIS:
+        # 4. Reconstruct Murlis using the appropriate method
+        logger.info(f"Total {len(combined_chunks)} unique chunks for reconstruction.")
+        chunk_metadatas = [meta for _, meta in combined_chunks]
+
+        if config.SENTENCE_WINDOW_RECONSTRUCTION:
+            logger.info("Using sentence window context reconstruction.")
+            reconstructed_context = result_processor.reconstruct_from_sentence_windows(
+                chunk_metadatas, vectordb, config
+            )
+        elif config.RECONSTRUCT_MURLIS:
+            logger.info("Using full Murli reconstruction.")
+            reconstructed_context = result_processor.reconstruct_murlis(
+                chunk_metadatas, vectordb, config
+            )
+        else:
             status_msg = (
                 f"Retrieved {len(semantic_docs)} semantic + {len(bm25_results)} BM25 chunks. "
                 f"Returning {len(combined_chunks)} unique chunks (no reconstruction)."
@@ -136,27 +155,22 @@ def create_context_retriever_tool(vectordb: Chroma, config: Config) -> Callable:
             logger.info(status_msg)
             return status_msg, combined_chunks
         
-        # 4. Reconstruct Murlis
-        logger.info(f"Total {len(combined_chunks)} unique chunks for Murli reconstruction.")
-        chunk_metadatas = [meta for _, meta in combined_chunks]
-        reconstructed_murlis = result_processor.reconstruct_murlis(chunk_metadatas, vectordb, config)
-        
-        if not reconstructed_murlis:
-            status_msg = "Failed to reconstruct any full Murlis from chunks."
+        if not reconstructed_context:
+            status_msg = "Failed to reconstruct context from chunks."
             logger.info(status_msg)
             return status_msg, []
         
         # Generate status message
         status_msg = (
             f"Retrieved {len(semantic_docs)} semantic + {len(bm25_results)} BM25 chunks. "
-            f"Reconstructed {len(reconstructed_murlis)} full Murlis."
+            f"Reconstructed context for {len(reconstructed_context)} retrieved chunks."
         )
         logger.info(status_msg)
         
-        if reconstructed_murlis:
-            logger.info(f"First reconstructed Murli snippet: {reconstructed_murlis[0][0][:200]}...")
+        if reconstructed_context:
+            logger.debug(f"First reconstructed Murli snippet: {reconstructed_context[0][0][:200]}...")
         
-        return status_msg, reconstructed_murlis
+        return status_msg, reconstructed_context                
     
     return retrieve_context
 
