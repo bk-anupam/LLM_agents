@@ -67,7 +67,7 @@ class Config:
 
         # New BM25 related configs
         self.BM25_TOP_K = self._get_config_value('BM25_TOP_K', int(os.environ.get('BM25_TOP_K', 10)))
-        self.BM25_MAX_CORPUS_SIZE = self._get_config_value('BM25_MAX_CORPUS_SIZE', int(os.environ.get('BM25_MAX_CORPUS_SIZE', 10000)))
+        self.BM25_MAX_CORPUS_SIZE = self._get_config_value('BM25_MAX_CORPUS_SIZE', int(os.environ.get('BM25_MAX_CORPUS_SIZE', 15000)))
 
         # New Murli Reconstruction Configs
         self.RECONSTRUCT_MURLIS = False
