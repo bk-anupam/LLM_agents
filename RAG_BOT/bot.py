@@ -90,9 +90,11 @@ class TelegramBotApp:
             # Register message handlers after bot initialization
             self.bot.register_message_handler(self.send_welcome, commands=['start'])
             self.bot.register_message_handler(self.send_help, commands=['help'])
-            self.bot.register_message_handler(self.handle_language_command, commands=['language']) # Register new command
+            self.bot.register_message_handler(self.handle_language_command, commands=['language'])
+            self.bot.register_message_handler(self.handle_mode_command, commands=['mode']) # Register new command for mode
             self.bot.register_message_handler(self.handle_document, content_types=['document'])
-            self.bot.register_message_handler(self.handle_all_messages_wrapper, func=lambda message: True)
+            # Handle all other messages that are not commands or documents
+            self.bot.register_message_handler(self.handle_all_messages_wrapper, func=lambda message: True, content_types=['text'])
             logger.info("Message handlers registered successfully")
         except Exception as e:
             logger.critical(f"Failed during application startup: {str(e)}", exc_info=True)
@@ -182,6 +184,7 @@ class TelegramBotApp:
             /start - Show welcome message.
             /help - Show this help message.
             /language <lang> - Set bot language (english or hindi). Example: /language hindi
+            /mode <mode> - Set bot response mode (default or research). Example: /mode research
             /query <your question> [date:YYYY-MM-DD] - Ask a question about the documents. Optionally filter by date.
             You can also just type your question directly.
             """
@@ -224,6 +227,29 @@ class TelegramBotApp:
         # Use the new config method to get the message
         reply_text = self.config.get_user_message(confirmation_prompt_key, default_confirmations[lang_code])
         self.bot.reply_to(message, reply_text)
+
+    def handle_mode_command(self, message: Message):
+        """Handles the /mode command to set user response mode."""
+        user_id = message.from_user.id
+        parts = message.text.split(maxsplit=1)
+
+        if len(parts) < 2:
+            # Fetch current mode from session or default
+            session = self.config.USER_SESSIONS.setdefault(user_id, {})
+            current_mode = session.get('mode', 'default')
+            self.bot.reply_to(message, f"Current mode is '{current_mode}'. Usage: /mode <default|research>")
+            return
+
+        new_mode = parts[1].strip().lower()
+        if new_mode in ['default', 'research']:
+            # Initialize session for the user if it doesn't exist
+            self.config.USER_SESSIONS.setdefault(user_id, {})
+            # Store the mode preference
+            self.config.USER_SESSIONS[user_id]['mode'] = new_mode
+            logger.info(f"Set mode preference for user {user_id} to '{new_mode}'")
+            self.bot.reply_to(message, f"Mode set to '{new_mode}'.")
+        else:
+            self.bot.reply_to(message, "Invalid mode. Please use 'default' or 'research'.")
 
 
     def _cleanup_uploaded_file(self, file_path, processed_successfully):
@@ -402,12 +428,14 @@ class TelegramBotApp:
         Returns the response string.
         """
         user_id = message.from_user.id
-        user_lang = self.config.USER_SESSIONS.get(user_id, {}).get('language', 'en') # Default to 'en'
-        logger.info(f"Processing message for user {user_id} in async core: '{message.text[:100]}...'")
+        session = self.config.USER_SESSIONS.setdefault(user_id, {})
+        user_lang = session.get('language', 'en')
+        user_mode = session.get('mode', 'default') # Get mode from session
+        logger.info(f"Processing message for user {user_id} in async core: '{message.text[:100]}...' (Lang: {user_lang}, Mode: {user_mode})")
 
         try:
-            # self.handler should be valid as it's checked in the wrapper
-            return await self.handler.process_message(message, user_lang)
+            # Pass the mode to the message handler
+            return await self.handler.process_message(message, user_lang, user_mode)
         except Exception as e:
             logger.error(f"Error in _handle_all_messages_async_core for user {user_id}: {str(e)}", exc_info=True)
             return "Sorry, I encountered an internal error while processing your request."

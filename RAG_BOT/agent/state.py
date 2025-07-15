@@ -25,3 +25,5 @@ class AgentState(TypedDict):
     web_search_attempted: bool
     # Last retrieval source: 'local' for local vector store, 'web' for web search
     last_retrieval_source: Optional[Literal["local", "web"]]
+    # Current mode of the agent: 'default' or 'research'
+    mode: Optional[Literal['default', 'research']]

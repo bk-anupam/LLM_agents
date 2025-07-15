@@ -85,7 +85,7 @@ class Config:
         # For USER_SESSIONS, make it an instance variable for better isolation in tests
         self.USER_SESSIONS = self._get_config_value('USER_SESSIONS', {})
         self.MAX_CHUNKS_FOR_DATE_FILTER = self._get_config_value('MAX_CHUNKS_FOR_DATE_FILTER', int(os.environ.get('MAX_CHUNKS_FOR_DATE_FILTER', 40)))
-        self.ASYNC_OPERATION_TIMEOUT = self._get_config_value('ASYNC_OPERATION_TIMEOUT', int(os.environ.get('ASYNC_OPERATION_TIMEOUT', 60)))
+        self.ASYNC_OPERATION_TIMEOUT = self._get_config_value('ASYNC_OPERATION_TIMEOUT', int(os.environ.get('ASYNC_OPERATION_TIMEOUT', 120)))
 
     def _get_config_value(self, key, default_value):
         """Helper to get value from overrides or use default."""
@@ -136,15 +136,20 @@ class Config:
         return cls.PROMPTS.get('reframe_question_prompt', '')
 
     @classmethod
-    def get_final_answer_system_prompt_template(cls, language_code: str):
-        """Gets the final answer system prompt template including language instruction."""
-        base_template = cls.PROMPTS.get('final_answer_prompt_system', '')
+    def get_final_answer_system_prompt_template(cls, language_code: str, mode: str = 'default'):
+        """
+        Gets the final answer system prompt template including language instruction,
+        based on the specified mode.
+        """
+        prompt_key = f'final_answer_prompt_system_{mode}'
+        base_template = cls.PROMPTS.get(prompt_key, cls.PROMPTS.get('final_answer_prompt_system_default', ''))
+        
         lang_instruction = cls.get_final_answer_language_instruction(language_code) # Fetch dynamic instruction based on arg
-        # Append the instruction. Add logic if needed to insert it cleanly.
-        # For now, just appending. Consider placement relative to CRITICAL INSTRUCTION:.        
+        
         # Find the position of 'CRITICAL INSTRUCTION:...'
         insertion_point_str = "CRITICAL INSTRUCTION:"
         insertion_point = base_template.find(insertion_point_str)
+        
         if lang_instruction and insertion_point != -1:
              # Insert instruction before the JSON format part
              return f"{base_template[:insertion_point]}{lang_instruction}\n{base_template[insertion_point:]}".strip()

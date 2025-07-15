@@ -22,12 +22,12 @@ class MessageHandler:
                 'last_interaction': datetime.datetime.now(),
                 'conversation': [],
                 'context': {},
-                'language': 'en'  # Default language
+                'language': 'en',  # Default language
+                'mode': 'default'  # Default mode
             }
         # Ensure essential keys are always present using setdefault
-        if 'language' not in self.sessions[user_id]:
-            self.sessions[user_id]['language'] = 'en'
-        # *** Ensure 'conversation' key exists ***
+        self.sessions[user_id].setdefault('language', 'en')
+        self.sessions[user_id].setdefault('mode', 'default')
         self.sessions[user_id].setdefault('conversation', [])
         return self.sessions[user_id]
 
@@ -41,39 +41,42 @@ class MessageHandler:
             'timestamp': datetime.datetime.now().isoformat()
         })
         # Limit conversation history (optional)
-        # Consider making the limit configurable
         history_limit = self.config.CONVERSATION_HISTORY_LIMIT or 10
         if len(session['conversation']) > history_limit:
             session['conversation'] = session['conversation'][-history_limit:]
 
 
-    async def _invoke_agent_and_get_response(self, chat_id: int, language_code: str, message: str) -> str:
+    async def _invoke_agent_and_get_response(self, chat_id: int, language_code: str, mode: str, message: str) -> str:
         """
         Invokes the RAG agent and extracts the response.
         Handles potential errors and unexpected response formats.
         """
         try:
-            logger.info(f"Invoking agent for thread_id={str(chat_id)}, lang='{language_code}', query='{message[:50]}...'")
+            logger.info(f"Invoking agent for thread_id={str(chat_id)}, lang='{language_code}', mode='{mode}', query='{message[:50]}...'")
             config_thread = {"configurable": {"thread_id": str(chat_id)}}
             initial_state = {
                 "messages": [HumanMessage(content=message)],
-                "language_code": language_code
+                "language_code": language_code,
+                "mode": mode # Pass mode to agent state
             }
             final_state = await self.agent.ainvoke(initial_state, config_thread)
             answer = None
             try:
-                # Attempt to access the answer directly using chained access
-                # .get("messages", []) handles missing 'messages' key, returns empty list if not found
-                # [-1] accesses the last message (can raise IndexError if list is empty)
-                # .content accesses the content attribute (can raise AttributeError if not present)
                 last_msg_content = final_state.get("messages", [])[-1].content
                 json_result = parse_json_answer(last_msg_content)
-                answer = json_result.get("answer") if json_result else None
+                
+                if json_result and "answer" in json_result:
+                    answer = json_result.get("answer")
+                    # Only include references if in 'research' mode
+                    if mode == 'research':
+                        references = json_result.get("references")
+                        if references and isinstance(references, list):
+                            ref_string = "\n\n*References:*\n- " + "\n- ".join(sorted(list(set(references))))
+                            answer += ref_string
             except (KeyError, IndexError, AttributeError, Exception) as e:
-                # Catch potential errors during access or parsing (including JSON parsing errors)
                 logger.warning(f"Could not extract answer from agent response: {e}")
-                # answer remains None
-            if not answer:
+            
+            if answer is None:
                 answer = "Sorry, I couldn't retrieve an answer for that."
             return answer
         except Exception as e:
@@ -81,7 +84,7 @@ class MessageHandler:
             return "Sorry, I encountered an internal error while processing your query."
 
 
-    async def process_message(self, incoming_message: Message, language_code: str):
+    async def process_message(self, incoming_message: Message, language_code: str, mode: str):
         """
         Process the incoming message and generate a response
         This is where you implement your custom logic
@@ -95,7 +98,7 @@ class MessageHandler:
         logger.info(f"Processing message from {user_id}: {message[:100]}...")
         session = self._get_user_session(user_id)
         message_lower = message.lower().strip()
-
+        
         greetings = {'hello', 'hi', 'hey'}
         if message_lower in greetings:
              response = "👋 Hello! I'm your Telegram assistant. How can I help you today?"
@@ -116,6 +119,7 @@ class MessageHandler:
             response = await self._invoke_agent_and_get_response(
                 chat_id=incoming_message.chat.id,
                 language_code=language_code,
+                mode=mode, # Pass mode to the agent invocation
                 message=message
             )
 

@@ -97,10 +97,44 @@ reframe_question_prompt: |
   Failed Query: {failed_query}
   Reframed Question:
 
-final_answer_prompt_system: |
+final_answer_prompt_system_research: |
   {system_base}
 
-  Use the following retrieved context to answer the question:
+  Use the following retrieved context to answer the question. The context is structured with 'Source:' and 'Content:' sections.
+  You MUST cite the specific sources you used to answer, using the exact text from the 'Source:' section.
+  Context:
+  {context}
+
+  ---
+  CRITICAL INSTRUCTION: 
+  Your entire response MUST be formatted as a single JSON object enclosed in a markdown code block.
+  Follow this json structure PRECISELY:
+  ```json
+  {{
+    "answer": "<Your carefully crafted answer text in the specified language and style>",
+    "references": [
+      "Murli from YYYY-MM-DD (lang)",
+      "Murli from YYYY-MM-DD (lang)"
+    ]
+  }}
+  ```
+  Details:
+  1. The response MUST start with ```json and end with ```.
+  2. Inside the markdown block, there MUST be a single, valid JSON object.
+  3. This JSON object MUST start with an opening curly brace `{{` and MUST end with a closing curly brace `}}`.
+  4. The JSON object MUST contain two keys: "answer" and "references".
+  5. The value for the "answer" key MUST be a single JSON string containing your complete response, adhering to the language and persona instructions.
+  6. The value for the "references" key MUST be a JSON array of strings. Each string in the array MUST correspond to a 'Source:' from the provided 
+     context that you used to formulate your answer. If you did not use any specific source, provide an empty array [].
+  7. If the answer text itself contains any double quote characters ("), they MUST be properly escaped with a backslash (e.g., `\"`).
+  8. There MUST NOT be any text, comments, or characters outside the markdown code block (neither before ```json nor after ```).
+  9. There MUST NOT be any extra keys, values, or trailing commas within the JSON object.
+  10. The entire output, including all string values, must be strictly UTF-8 encoded.  
+
+final_answer_prompt_system_default: |
+  {system_base}
+
+  Use the following retrieved context to answer the question.
   Context:
   {context}
 
@@ -117,12 +151,12 @@ final_answer_prompt_system: |
   1. The response MUST start with ```json and end with ```.
   2. Inside the markdown block, there MUST be a single, valid JSON object.
   3. This JSON object MUST start with an opening curly brace `{{` and MUST end with a closing curly brace `}}`.
-  4. The JSON object MUST contain exactly one key: "answer".
+  4. The JSON object MUST contain one key: "answer".
   5. The value for the "answer" key MUST be a single JSON string containing your complete response, adhering to the language and persona instructions.
   6. If the answer text itself contains any double quote characters ("), they MUST be properly escaped with a backslash (e.g., `\"`).
   7. There MUST NOT be any text, comments, or characters outside the markdown code block (neither before ```json nor after ```).
   8. There MUST NOT be any extra keys, values, or trailing commas within the JSON object.
-  9. The entire output, including all string values, must be strictly UTF-8 encoded.  
+  9. The entire output, including all string values, must be strictly UTF-8 encoded.
 
 final_answer_prompt_human: "{original_query}"
 

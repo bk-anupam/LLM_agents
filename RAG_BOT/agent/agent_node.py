@@ -1,5 +1,6 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/agent/agent_node.py
 import json
+from collections import defaultdict
 from typing import Any, Dict
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import (
@@ -13,7 +14,7 @@ from RAG_BOT.agent.state import AgentState
 from RAG_BOT.agent.prompts import get_final_answer_chat_prompt
 
 
-def generate_final_response(state: AgentState, llm: ChatGoogleGenerativeAI, language_code: str) -> Dict[str, Any]:
+def generate_final_response(state: AgentState, llm: ChatGoogleGenerativeAI) -> Dict[str, Any]:
     """
     Generates and returns the final response based on the evaluation result,
     original query, and retrieved context.
@@ -22,9 +23,13 @@ def generate_final_response(state: AgentState, llm: ChatGoogleGenerativeAI, lang
     evaluation = state.get('evaluation_result')
     original_query = state.get('original_query')
     retry_attempted = state.get('retry_attempted', False)
+    language_code = state.get('language_code', 'en')
+    mode = state.get('mode', 'default') # Get the mode from the state
 
     # Determine the content to be used for the final answer.
-    content_for_final_answer = state.get('context') 
+    content_for_final_answer = state.get('context')
+    # reranked documents used as context for final answer
+    context_docs = state.get('documents', [])
 
     # If no context from retrieval, check if the last message was a direct AI answer.
     last_message_in_state = state['messages'][-1] if state['messages'] else None
@@ -36,7 +41,7 @@ def generate_final_response(state: AgentState, llm: ChatGoogleGenerativeAI, lang
     elif not content_for_final_answer and state.get('documents'): # If context is None but documents exist
         logger.info("Context is None, but documents found in state. Joining document contents for final answer.")
         content_for_final_answer = "\n\n".join([doc.page_content for doc in state['documents']])
-
+    
     generate_cannot_find = False
     if evaluation == 'insufficient' and retry_attempted:
         logger.info("Context evaluated as insufficient after retry. Generating 'cannot find' message.")
@@ -52,7 +57,8 @@ def generate_final_response(state: AgentState, llm: ChatGoogleGenerativeAI, lang
 
     if not generate_cannot_find and content_for_final_answer:
         logger.info(f"Proceeding to format final answer using content: '{str(content_for_final_answer)[:200]}...'")
-        final_answer_prompt = get_final_answer_chat_prompt(language_code)
+        # Pass the mode to get the correct prompt template
+        final_answer_prompt = get_final_answer_chat_prompt(language_code, mode)
         final_answer_chain = final_answer_prompt | llm
         
         final_answer_llm_input = {
@@ -70,9 +76,15 @@ def generate_final_response(state: AgentState, llm: ChatGoogleGenerativeAI, lang
         return {"messages": [final_answer]}
     else:
         logger.info("Context insufficient after retry or error. Generating 'cannot find' message in JSON format.")
+        # The "cannot find" message should also respect the mode if it implies a different format
+        # For simplicity, we'll keep it consistent for now, but could be made mode-aware.
         cannot_find_content = {
             "answer": "Relevant information cannot be found in the database to answer the question. Please try reframing your question."
         }
+        # If in research mode, add an empty references array
+        if mode == 'research':
+            cannot_find_content["references"] = []
+            
         cannot_find_json_string = f"```json\n{json.dumps(cannot_find_content, indent=2, ensure_ascii=False)}\n```"
         cannot_find_message = AIMessage(content=cannot_find_json_string)
         return {"messages": [cannot_find_message]}
@@ -88,15 +100,14 @@ async def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_to
     messages = state.get('messages', []) # Ensure messages is a list
     last_message = messages[-1] if messages else None # Ensure last_message is not None
     language_code = state.get('language_code', 'en')
+    mode = state.get('mode', 'default') # Get the mode from the state
 
     # 1. Handle Initial User Query
     if isinstance(last_message, HumanMessage):
         logger.info(f"Agent node received HumanMessage: {last_message.content}")        
         # Check if this is a retry scenario after local retrieval failed
         # This logic assumes agent_initial is re-entered after local failure
-        # and before web search is attempted.
-        # THIS GUIDANCE LOGIC IS NOW LESS CRITICAL IF force_web_search_node is used,
-        # but can be kept as a fallback or if agent_initial is entered under other similar conditions.
+        # and before web search is attempted.        
         current_query_for_guidance = state.get("current_query") or last_message.content # Ensure we have a query for guidance
         documents_from_state = state.get("documents")
         last_retrieval_source = state.get("last_retrieval_source")
@@ -104,14 +115,7 @@ async def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_to
         prompt_prefix_messages = []
         if last_retrieval_source == "local" and \
            (not documents_from_state or len(documents_from_state) == 0) and not web_search_attempted:
-            
-            # The explicit guidance prompt might still be useful if, for some reason,
-            # the flow reaches agent_initial instead of force_web_search_node.
-            # formatted_date_for_url = utils.extract_date_from_text(current_query, return_date_format="%d.%m.%y")            
-            # if formatted_date_for_url:                
-            #     guidance_content = Config.get_guidance_prompt(language_code, current_query, formatted_date_for_url)
-            #     logger.info(f"guidance_content (in agent_node): {guidance_content}")
-            #     prompt_prefix_messages.append(SystemMessage(content=guidance_content))
+                        
             logger.info(f"Agent node entered after local retrieval failed for query '{current_query_for_guidance}'." 
                         f"Web search attempted: {web_search_attempted}. Relying on graph logic for web search if needed.")
 
@@ -131,13 +135,12 @@ async def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_to
             "original_query": state.get('original_query') or last_message.content,
             "current_query": last_message.content, # The query that was just processed
             "language_code": language_code,
+            "mode": mode, 
             # Reset fields for the new phase initiated by this HumanMessage/LLM response
             "evaluation_result": None,
             "documents": [], # Clear previous documents before new tool call
             "context": None,   # Clear previous concatenated context
-            "last_retrieval_source": None, # Will be set by next tool processing
-            # web_search_attempted is now set by force_web_search_node or process_tool_output
-            # "web_search_attempted": False, 
+            "last_retrieval_source": None, # Will be set by next tool processing            
             # Preserve retry_attempted if it was set by a preceding node (e.g., reframe_query_node)
             "retry_attempted": state.get('retry_attempted', False)
         }
@@ -146,4 +149,4 @@ async def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_to
         return updated_attrs
     # 2. Generate Final Answer (handles direct AI responses or context-based answers)    
     else:
-        return generate_final_response(state, llm, language_code)
+        return generate_final_response(state, llm)
