@@ -62,7 +62,7 @@ def generate_final_response(state: AgentState, llm: ChatGoogleGenerativeAI) -> D
         final_answer_chain = final_answer_prompt | llm
         
         final_answer_llm_input = {
-            "system_base": Config.get_system_prompt(language_code),          
+            "system_base": Config.get_system_prompt(language_code, mode),          
             "original_query": original_query,
             "context": content_for_final_answer
         }
@@ -117,10 +117,10 @@ async def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_to
            (not documents_from_state or len(documents_from_state) == 0) and not web_search_attempted:
                         
             logger.info(f"Agent node entered after local retrieval failed for query '{current_query_for_guidance}'." 
-                        f"Web search attempted: {web_search_attempted}. Relying on graph logic for web search if needed.")
+                         f"Web search attempted: {web_search_attempted}. Relying on graph logic for web search if needed.")
 
         # Prepare messages for LLM with tools
-        system_prompt_msg = SystemMessage(content=Config.get_system_prompt(language_code))
+        system_prompt_msg = SystemMessage(content=Config.get_system_prompt(language_code, mode))
         # Use LLM with tools to decide if tool call is needed
         # The 'messages' in state already includes the last_message (HumanMessage)
         # prompt_prefix_messages are inserted before the main history.

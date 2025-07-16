@@ -94,10 +94,9 @@ class Config:
     # --- Accessor methods for prompts (optional but good practice) ---
     @classmethod
     def get_bk_persona_language_instruction(cls, language_code: str):
-        """Gets the language-specific instruction for the BK persona prompt."""
-        # Use provided language_code
-        lang = language_code.lower() # Ensure lowercase for matching keys
-        return cls.PROMPTS.get('language_instructions', {}).get('bk_persona', {}).get(lang, '') # Default to empty string
+        """Gets the language-specific instruction for the BK persona prompt."""        
+        lang = language_code.lower()
+        return cls.PROMPTS.get('language_instructions', {}).get('bk_persona', {}).get(lang, '') 
 
     @classmethod
     def get_final_answer_language_instruction(cls, language_code: str):
@@ -106,13 +105,19 @@ class Config:
         return cls.PROMPTS.get('language_instructions', {}).get('final_answer_system', {}).get(lang, '') # Default to empty string
 
     @classmethod
-    def get_system_prompt(cls, language_code: str):
+    def get_response_guidelines(cls, mode: str):
+        """Gets the response guidelines for the specified mode."""
+        return cls.PROMPTS.get('response_guidelines', {}).get(mode, '')
+
+    @classmethod
+    def get_system_prompt(cls, language_code: str, mode: str = 'default'):
         """Gets the combined system prompt including base persona, guidance, and language instruction."""
         base_persona = cls.PROMPTS.get('system_prompt', {}).get('bk_persona', '')
         guidance = cls.PROMPTS.get('system_prompt', {}).get('question_guidance', '')
-        lang_instruction = cls.get_bk_persona_language_instruction(language_code) # Fetch dynamic instruction based on arg
+        response_guidelines = cls.get_response_guidelines(mode)
+        lang_instruction = cls.get_bk_persona_language_instruction(language_code)
         # Combine, adding a newline before the instruction if it exists
-        return f"{base_persona}\n{guidance}\n{lang_instruction}".strip()
+        return f"{base_persona}\n{response_guidelines}\n{guidance}\n{lang_instruction}".strip()
 
     @classmethod
     def get_bk_persona_prompt(cls):
