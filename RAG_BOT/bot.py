@@ -462,25 +462,40 @@ class TelegramBotApp:
             logger.error(f"Error setting up webhook: {e}", exc_info=True)
             return False
 
+    def start_polling(self):
+        """Starts the bot in polling mode."""
+        logger.info("Removing existing webhook (if any) before starting polling...")
+        self.bot.remove_webhook() # Crucial: remove webhook before polling
+        logger.info("Starting bot in polling mode...")
+        try:
+            self.bot.infinity_polling()
+        except Exception as e:
+            logger.critical(f"Error during bot polling: {e}", exc_info=True)
+            exit(1)
+        logger.info("Bot polling stopped.")
+
 
     def run(self):
-        """Runs the Flask application."""
+        """Runs the bot, either in polling mode or as a Flask application with webhook."""
         if not self.agent or not self.handler:
             logger.critical("Agent or MessageHandler not initialized before run(). Ensure initialize_agent_and_handler() was successfully called.")
-            # This indicates a severe setup issue.
             exit(1)
 
-        WEBHOOK_URL = self.config.WEBHOOK_URL
-        if not WEBHOOK_URL:
-            logger.error("WEBHOOK_URL is not set in config. Cannot start Flask server with webhook.")
-            exit(1)
-
-        if self.setup_webhook(WEBHOOK_URL):
-            logger.info(f"Starting Flask server on port {self.config.PORT}")
-            self.app.run(host='0.0.0.0', port=self.config.PORT, debug=False)
+        if self.config.USE_POLLING:
+            logger.info("Starting bot in polling mode as per configuration.")
+            self.start_polling()
         else:
-            logger.critical("Failed to set up webhook. Aborting Flask server start.")
-            exit(1)
+            WEBHOOK_URL = self.config.WEBHOOK_URL
+            if not WEBHOOK_URL:
+                logger.error("WEBHOOK_URL is not set in config. Cannot start Flask server with webhook.")
+                exit(1)
+
+            if self.setup_webhook(WEBHOOK_URL):
+                logger.info(f"Starting Flask server on port {self.config.PORT}")
+                self.app.run(host='0.0.0.0', port=self.config.PORT, debug=False)
+            else:
+                logger.critical("Failed to set up webhook. Aborting Flask server start.")
+                exit(1)
 
 
 if __name__ == "__main__":

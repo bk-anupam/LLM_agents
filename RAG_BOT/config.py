@@ -87,6 +87,11 @@ class Config:
         self.MAX_CHUNKS_FOR_DATE_FILTER = self._get_config_value('MAX_CHUNKS_FOR_DATE_FILTER', int(os.environ.get('MAX_CHUNKS_FOR_DATE_FILTER', 40)))
         self.ASYNC_OPERATION_TIMEOUT = self._get_config_value('ASYNC_OPERATION_TIMEOUT', int(os.environ.get('ASYNC_OPERATION_TIMEOUT', 120)))
 
+        # Add USE_POLLING configuration
+        default_use_polling_str = os.environ.get('USE_POLLING', 'False')
+        default_use_polling = default_use_polling_str.lower() in ('true', '1', 't')
+        self.USE_POLLING = self._get_config_value('USE_POLLING', default_use_polling)
+
     def _get_config_value(self, key, default_value):
         """Helper to get value from overrides or use default."""
         return self._overrides.get(key, default_value)
