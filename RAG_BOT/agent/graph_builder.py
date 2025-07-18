@@ -43,6 +43,15 @@ async def get_mcp_server_tools(config_instance: Config):
     """
     Returns a list of MCP server tools.
     """
+    if config_instance.DEV_MODE:
+        tavily_mcp_command = f"export TAVILY_API_KEY='{config_instance.TAVILY_API_KEY}' && " \
+                            "source /home/bk_anupam/.nvm/nvm.sh > /dev/null 2>&1 && "\
+                            "nvm use v22.14.0 > /dev/null 2>&1 && "\
+                            "npx --quiet -y tavily-mcp@0.2.1"
+    else:
+        tavily_mcp_command = f"export TAVILY_API_KEY='{config_instance.TAVILY_API_KEY}' && "\
+                            "npx --quiet -y tavily-mcp@0.2.1"
+
     mcp_client = MultiServerMCPClient(
         {
             "tavily-mcp": {
@@ -50,10 +59,7 @@ async def get_mcp_server_tools(config_instance: Config):
                 "args": [
                     "-c",
                     (
-                        f"export TAVILY_API_KEY='{config_instance.TAVILY_API_KEY}' && "
-                        "source /home/bk_anupam/.nvm/nvm.sh > /dev/null 2>&1 && "
-                        "nvm use v22.14.0 > /dev/null 2>&1 && "
-                        "npx --quiet -y tavily-mcp@0.2.1"
+                        f"{tavily_mcp_command}"
                     )
                 ],
                 "transport": "stdio",

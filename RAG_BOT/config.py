@@ -91,6 +91,7 @@ class Config:
         default_use_polling_str = os.environ.get('USE_POLLING', 'False')
         default_use_polling = default_use_polling_str.lower() in ('true', '1', 't')
         self.USE_POLLING = self._get_config_value('USE_POLLING', default_use_polling)
+        self.DEV_MODE = self._get_config_value('DEV_MODE', os.environ.get('DEV_MODE', 'False').lower() in ('true', '1', 't'))
 
     def _get_config_value(self, key, default_value):
         """Helper to get value from overrides or use default."""
