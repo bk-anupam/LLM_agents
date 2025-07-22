@@ -5,7 +5,7 @@ ENV PYTHONUNBUFFERED=1
 # Hugging Face Spaces will set the PORT environment variable (typically 7860).
 # Your application (bot.py) reads this PORT variable.
 # EXPOSE informs Docker which port the application inside the container will listen on.
-ENV APP_PORT=7860
+ENV APP_PORT=8080
 EXPOSE ${APP_PORT}
 
 RUN apt-get update && apt-get install -y \

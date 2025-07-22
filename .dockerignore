@@ -1,0 +1,25 @@
+# Git
+.git
+.gitignore
+
+# Docker
+.dockerignore
+Dockerfile
+
+# VSCode
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Local data and databases
+RAG_BOT/chroma_db/
+RAG_BOT/data/
+
+# Environment files
+RAG_BOT/.env
