@@ -521,8 +521,9 @@ if __name__ == "__main__":
                     config=config
                 )            
                 document_indexer_instance.index_directory(DATA_DIRECTORY)                
-                logger.info("Logging final indexed metadata...")
-                vector_store_instance.log_all_indexed_metadata()
+            
+            logger.info("Logging final indexed metadata...")
+            vector_store_instance.log_all_indexed_metadata()
 
             if vectordb is None:
                 logger.error("VectorDB instance is None. Cannot proceed.")
