@@ -1,27 +1,23 @@
-FROM python:3.10-slim
+# ---- Builder Stage ----
+# Use a full image for building to have access to build tools like compilers.
+FROM python:3.10 as builder
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-# Hugging Face Spaces will set the PORT environment variable (typically 7860).
-# Your application (bot.py) reads this PORT variable.
-# EXPOSE informs Docker which port the application inside the container will listen on.
-ENV APP_PORT=8080
-EXPOSE ${APP_PORT}
-
-RUN apt-get update && apt-get install -y \
-    curl \
-    git \
-    build-essential \    
-    && rm -rf /var/lib/apt/lists/*
-
-# Upgrades the pip package installer to its latest version within the system's Python environment. 
-# --no-cache-dir prevents pip from storing downloaded packages in a cache, helping to keep the image size smaller.
-RUN pip install --no-cache-dir --upgrade pip
-
 ENV NVM_DIR="/opt/nvm"
-ENV NODE_VERSION="22.14.0" 
+ENV NODE_VERSION="22.14.0"
+ENV PATH="$NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH"
 
-# Install nvm, Node.js, and npm
+# Install build-time dependencies (compilers, curl for nvm)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+     curl \
+     gnupg \
+     && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] http://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
+     && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - \
+     && apt-get update && apt-get install -y gcsfuse \
+     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install nvm and Node.js ONCE in the builder stage.
 RUN mkdir -p "$NVM_DIR" && \
     # The pipe (|) takes the output from curl and feeds it directly into bash.
     # bash executes the script as if it were run directly from the terminal.
@@ -34,52 +30,67 @@ RUN mkdir -p "$NVM_DIR" && \
     # because the nvm installation script only sets up the environment for the shell session in which it's run. By sourcing nvm.sh, 
     # the script ensures that nvm is available for the subsequent commands, such as nvm install, nvm use, etc.
     . "$NVM_DIR/nvm.sh" && \
-    nvm install $NODE_VERSION && \
-    nvm use $NODE_VERSION && \
-    nvm alias default $NODE_VERSION && \
-    nvm cache clear
+    nvm install "$NODE_VERSION" && \
+    nvm alias default "$NODE_VERSION" && \
+    nvm cache clear && \
+    # This find command cleans up nvm to reduce image size
+    find "$NVM_DIR" -name "test" -o -name "benchmark" -o -name "docs" -o -name "examples" | xargs rm -rf
 
-# Add Node to PATH for all users and sessions
-# NVM stores node versions with a 'v' prefix in the directory, e.g., v22.14.0
-# This makes node and npm, npx commands globally accessible within the container.
-ENV PATH="$NVM_DIR/versions/node/v${NODE_VERSION}/bin:$PATH"
+# Set up working directory, copy requirements, and install Python packages
+WORKDIR /app
+COPY requirements.txt ./
+# Upgrades the pip package installer to its latest version within the system's Python environment. 
+# --no-cache-dir prevents pip from storing downloaded packages in a cache, helping to keep the image size smaller.
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# In HF docker space The container runs with user ID 1000. To avoid permission issues you should create a user 
-# and set its WORKDIR before any COPY or download (https://huggingface.co/docs/hub/en/spaces-sdks-docker)
-# Set up a new user named "user" with user ID 1000
+# Copy the entire application source code into the builder
+COPY . .
+
+# ---- Final Stage ----
+# Use a slim image for the final application to reduce size and attack surface.
+FROM python:3.10-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV APP_PORT=5000
+EXPOSE ${APP_PORT}
+ENV NVM_DIR="/opt/nvm"
+ENV NODE_VERSION="22.14.0"
+ENV PATH="/home/user/app/.venv/bin:$NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH"
+ENV HF_HOME="/home/user/.cache/huggingface"
+
+# Install only essential runtime OS dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up non-root user for security
 RUN useradd -m -s /bin/bash -u 1000 user
+WORKDIR /home/user/app
 
-# Set user-specific environment variables
-ENV HOME=/home/user
-# Define Hugging Face cache directory for the user
-ENV HF_HOME=$HOME/.cache 
-# Prepend user's local bin to PATH for user-installed packages
-ENV PATH=$HOME/.local/bin:$PATH 
+# Copy the installed NVM/Node and Python packages from the builder stage
+COPY --from=builder --chown=user:user ${NVM_DIR} ${NVM_DIR}
+COPY --from=builder --chown=user:user /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
 
-# Switch to the "user" user
+# Copy your application code from the builder stage
+COPY --from=builder --chown=user:user /app .
+
+# Create the HF_HOME directory and set permissions
+RUN mkdir -p ${HF_HOME} && chown -R user:user /home/user
+
+# Switch to the non-root user
 USER user
 
-# Set the working directory to the user's home directory app folder
-WORKDIR $HOME/app    
-
-# Create the HF_HOME directory as the user to ensure correct permissions
-RUN mkdir -p $HF_HOME
-
-# Always specify the `--chown=user` with `ADD` and `COPY` to ensure the new files are owned by your user.
-COPY --chown=user:user requirements.txt ./
-RUN pip3 install --no-cache-dir -r requirements.txt
-
-# Copy your application code
-COPY --chown=user:user RAG_BOT/ ./RAG_BOT/
-# If other application files/directories are at the root of your build context, copy them too:
-# COPY --chown=user:user other_app_dir/ ./other_app_dir/
-# COPY --chown=user:user app_file.py ./
-
-# Command to run the application
-# Use Gunicorn as indicated by your Procfile.
-# This requires your RAG_BOT/bot.py to have a module-level Flask app instance named 'app'.
-# Example: In RAG_BOT/bot.py, after your main_setup_and_run(), add:
-# application = main_setup_and_run(create_app_only=True) # if main_setup_and_run can return the app
-# Or, ensure a global 'app' variable is assigned the Flask instance.
+# Command to run the application. Your README mentions Gunicorn, which is a great choice for production.
+# To use this, your bot.py needs to expose a Flask 'app' object.
 # CMD ["gunicorn", "--bind", "0.0.0.0:${APP_PORT}", "RAG_BOT.bot:app"]
 CMD ["python", "-m", "RAG_BOT.bot"]
+
+# This command mounts BOTH the data and the chroma_db directories using bind mount
+# docker run -p 5000:5000 --env-file ./RAG_BOT/.env \
+# 	 -e HF_HOME=/home/user/.cache/huggingface \
+#    -v "$(pwd)/RAG_BOT/data:/home/user/app/RAG_BOT/data:ro" \
+#    -v "$(pwd)/RAG_BOT/chroma_db:/home/user/app/RAG_BOT/chroma_db" \
+#    -v "$HOME/.cache/huggingface:/home/user/.cache/huggingface" \
+#    -t rag_bot_image:latest

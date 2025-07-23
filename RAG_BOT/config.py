@@ -1,9 +1,15 @@
 import os
 import yaml 
 from dotenv import load_dotenv, find_dotenv
+from google.cloud import secretmanager
 
-dotenv_path = find_dotenv()
-load_dotenv(dotenv_path)  # This loads the variables from .env
+# --- ADD THIS SECTION FOR GCP SECRET MANAGER ---
+IS_GCP_ENVIRONMENT = os.environ.get('K_SERVICE') is not None
+PROJECT_ID = os.environ.get('GCP_PROJECT_ID') # You'll set this env var in Cloud Run
+
+if not IS_GCP_ENVIRONMENT:
+    dotenv_path = find_dotenv()
+    load_dotenv(dotenv_path)  # This loads the variables from .env
 
 # Define the path to the prompts file relative to this config file
 PROMPTS_FILE_PATH = os.path.join(os.path.dirname(__file__), 'prompts.yaml') 
@@ -28,6 +34,22 @@ def load_prompts(file_path):
         return {} # Return empty dict on other errors
 
 
+def get_secret(secret_id, project_id=PROJECT_ID):
+    """Retrieves a secret from Google Cloud Secret Manager."""
+    if not project_id:
+        print(f"Warning: GCP_PROJECT_ID is not set. Cannot fetch secret: {secret_id}")
+        return None
+    
+    try:   
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
+    except Exception as e:
+        print(f"Error fetching secret '{secret_id}': {e}")
+        return None
+
+
 class Config:
     # Load prompts from YAML file
     PROMPTS = load_prompts(PROMPTS_FILE_PATH) # Stays as class variable
@@ -35,12 +57,27 @@ class Config:
     def __init__(self, **overrides):
         self._overrides = overrides
 
+        if IS_GCP_ENVIRONMENT:
+             # In Cloud Run, fetch from Secret Manager
+             self.TELEGRAM_BOT_TOKEN = get_secret('TELEGRAM_BOT_TOKEN')
+             self.GEMINI_API_KEY = get_secret('GEMINI_API_KEY')
+             self.TAVILY_API_KEY = get_secret('TAVILY_API_KEY')
+             self.VECTOR_STORE_PATH = os.environ.get('VECTOR_STORE_PATH')
+             self.DATA_PATH = os.environ.get('DATA_PATH')
+        else:
+             # For local development, use .env files
+             self.TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+             self.GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+             self.TAVILY_API_KEY = os.environ.get('TAVILY_API_KEY')
+             self.VECTOR_STORE_PATH = os.environ.get('VECTOR_STORE_PATH')
+             self.DATA_PATH = os.environ.get('DATA_PATH')
+
         # Paths and simple values become instance attributes
-        self.TELEGRAM_BOT_TOKEN = self._get_config_value('TELEGRAM_BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN'))
-        self.GEMINI_API_KEY = self._get_config_value('GEMINI_API_KEY', os.environ.get('GEMINI_API_KEY', None))
-        self.TAVILY_API_KEY = self._get_config_value('TAVILY_API_KEY', os.environ.get('TAVILY_API_KEY', None))
-        self.VECTOR_STORE_PATH = self._get_config_value('VECTOR_STORE_PATH', os.environ.get('VECTOR_STORE_PATH', None))
-        self.DATA_PATH = self._get_config_value('DATA_PATH', os.environ.get('DATA_PATH', None))
+        # self.TELEGRAM_BOT_TOKEN = self._get_config_value('TELEGRAM_BOT_TOKEN', os.environ.get('TELEGRAM_BOT_TOKEN'))
+        # self.GEMINI_API_KEY = self._get_config_value('GEMINI_API_KEY', os.environ.get('GEMINI_API_KEY', None))
+        # self.TAVILY_API_KEY = self._get_config_value('TAVILY_API_KEY', os.environ.get('TAVILY_API_KEY', None))
+        # self.VECTOR_STORE_PATH = self._get_config_value('VECTOR_STORE_PATH', os.environ.get('VECTOR_STORE_PATH', None))
+        # self.DATA_PATH = self._get_config_value('DATA_PATH', os.environ.get('DATA_PATH', None))
         self.INDEXED_DATA_PATH = self._get_config_value('INDEXED_DATA_PATH', os.environ.get('INDEXED_DATA_PATH', None))
         self.WEBHOOK_URL = self._get_config_value('WEBHOOK_URL', os.environ.get('WEBHOOK_URL', None))
         self.PORT = self._get_config_value('PORT', int(os.environ.get('PORT', 5000)))
