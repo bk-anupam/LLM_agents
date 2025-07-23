@@ -48,12 +48,12 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(logging.Formatter(log_format))
 logger.addHandler(console_handler)
 
-# File handler
-log_file = os.getenv('LOG_FILE', 'rag_bot.log')
-file_handler = logging.FileHandler(log_file)
-file_handler.setFormatter(logging.Formatter(log_format))
-logger.addHandler(file_handler)
+# # File handler
+# log_file = os.getenv('LOG_FILE', 'rag_bot.log')
+# file_handler = logging.FileHandler(log_file)
+# file_handler.setFormatter(logging.Formatter(log_format))
+# logger.addHandler(file_handler)
 
 # Optional: Log the effective level being used
-logger.info(f"Logging configured with level: {logging.getLevelName(log_level)} (console and file: {log_file})")
+logger.info(f"Logging configured with level: {logging.getLevelName(log_level)}")
 
