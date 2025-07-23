@@ -43,7 +43,7 @@ class Config:
         self.DATA_PATH = self._get_config_value('DATA_PATH', os.environ.get('DATA_PATH', None))
         self.INDEXED_DATA_PATH = self._get_config_value('INDEXED_DATA_PATH', os.environ.get('INDEXED_DATA_PATH', None))
         self.WEBHOOK_URL = self._get_config_value('WEBHOOK_URL', os.environ.get('WEBHOOK_URL', None))
-        self.PORT = self._get_config_value('PORT', int(os.environ.get('PORT', 5000)))
+        self.PORT = self._get_config_value('MYPORT', int(os.environ.get('MYPORT', 5000)))
         self.LLM_MODEL_NAME = self._get_config_value('LLM_MODEL_NAME', os.environ.get('LLM_MODEL_NAME', 'gemini-2.5-flash-preview-04-17'))
         self.EMBEDDING_MODEL_NAME = self._get_config_value('EMBEDDING_MODEL_NAME', os.environ.get('EMBEDDING_MODEL_NAME', 'all-MiniLM-L6-v2'))
         self.RERANKER_MODEL_NAME = self._get_config_value('RERANKER_MODEL_NAME', os.environ.get('RERANKER_MODEL_NAME', 'cross-encoder/ms-marco-MiniLM-L-6-v2'))
@@ -92,6 +92,7 @@ class Config:
         default_use_polling = default_use_polling_str.lower() in ('true', '1', 't')
         self.USE_POLLING = self._get_config_value('USE_POLLING', default_use_polling)
         self.DEV_MODE = self._get_config_value('DEV_MODE', os.environ.get('DEV_MODE', 'False').lower() in ('true', '1', 't'))
+        self.INDEX_ON_STARTUP = self._get_config_value('INDEX_ON_STARTUP', os.environ.get('INDEX_ON_STARTUP', 'False').lower() in ('true', '1', 't'))
 
     def _get_config_value(self, key, default_value):
         """Helper to get value from overrides or use default."""

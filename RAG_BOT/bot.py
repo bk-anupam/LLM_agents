@@ -512,19 +512,17 @@ if __name__ == "__main__":
             vector_store_instance = VectorStore(persist_directory=config.VECTOR_STORE_PATH, config=config)
             vectordb = vector_store_instance.get_vectordb() # Get the db instance after init
             logger.info("VectorStore initialized.")
-
             # --- Index data directory on startup ---            
-            file_manager_instance = FileManager(config=config)
-            document_indexer_instance = DocumentIndexer(
-                vector_store_instance=vector_store_instance,
-                file_manager_instance=file_manager_instance,
-                config=config
-            )            
-            document_indexer_instance.index_directory(DATA_DIRECTORY)
-            # --- End Indexing ---
-            
-            logger.info("Logging final indexed metadata...")
-            vector_store_instance.log_all_indexed_metadata()
+            if config.INDEX_ON_STARTUP:                
+                file_manager_instance = FileManager(config=config)
+                document_indexer_instance = DocumentIndexer(
+                    vector_store_instance=vector_store_instance,
+                    file_manager_instance=file_manager_instance,
+                    config=config
+                )            
+                document_indexer_instance.index_directory(DATA_DIRECTORY)                
+                logger.info("Logging final indexed metadata...")
+                vector_store_instance.log_all_indexed_metadata()
 
             if vectordb is None:
                 logger.error("VectorDB instance is None. Cannot proceed.")
