@@ -5,7 +5,7 @@ ENV PYTHONUNBUFFERED=1
 # Hugging Face Spaces will set the PORT environment variable (typically 7860).
 # Your application (bot.py) reads this PORT variable.
 # EXPOSE informs Docker which port the application inside the container will listen on.
-ENV APP_PORT=8080
+ENV APP_PORT=5000
 EXPOSE ${APP_PORT}
 
 RUN apt-get update && apt-get install -y \
@@ -52,7 +52,7 @@ RUN useradd -m -s /bin/bash -u 1000 user
 # Set user-specific environment variables
 ENV HOME=/home/user
 # Define Hugging Face cache directory for the user
-ENV HF_HOME=$HOME/.cache 
+ENV HF_HOME=$HOME/.cache/huggingface 
 # Prepend user's local bin to PATH for user-installed packages
 ENV PATH=$HOME/.local/bin:$PATH 
 
@@ -71,9 +71,6 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy your application code
 COPY --chown=user:user RAG_BOT/ ./RAG_BOT/
-# If other application files/directories are at the root of your build context, copy them too:
-# COPY --chown=user:user other_app_dir/ ./other_app_dir/
-# COPY --chown=user:user app_file.py ./
 
 # Command to run the application
 # Use Gunicorn as indicated by your Procfile.
