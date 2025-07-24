@@ -76,6 +76,16 @@ RUN mkdir -p $HF_HOME
 COPY --chown=user:user requirements.txt ./
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+# Pre-download and cache the embedding and reranker models during the build process.
+# This avoids slow, rate-limited downloads on container startup and makes them part of the image.
+# The model names here MUST match the ones set in your Cloud Run environment variables.
+RUN python -c "\
+from sentence_transformers import SentenceTransformer, CrossEncoder; \
+print('Caching embedding model: paraphrase-multilingual-mpnet-base-v2'); \
+SentenceTransformer('sentence-transformers/paraphrase-multilingual-mpnet-base-v2'); \
+print('Caching reranker model: cross-encoder/mmarco-mMiniLMv2-L12-H384-v1'); \
+CrossEncoder('cross-encoder/mmarco-mMiniLMv2-L12-H384-v1')"
+
 # Copy the startup script and make it executable
 COPY --chown=user:user startup.sh ./
 RUN chmod +x ./startup.sh
