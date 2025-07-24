@@ -11,7 +11,14 @@ EXPOSE ${APP_PORT}
 RUN apt-get update && apt-get install -y \
     curl \
     git \
-    build-essential \    
+    build-essential \
+    # Install Google Cloud SDK for gsutil
+    apt-transport-https \
+    ca-certificates \
+    gnupg \
+    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - \
+    && apt-get update && apt-get install -y google-cloud-sdk \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrades the pip package installer to its latest version within the system's Python environment. 
@@ -69,14 +76,13 @@ RUN mkdir -p $HF_HOME
 COPY --chown=user:user requirements.txt ./
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+# Copy the startup script and make it executable
+COPY --chown=user:user startup.sh ./
+RUN chmod +x ./startup.sh
+
 # Copy your application code
 COPY --chown=user:user RAG_BOT/ ./RAG_BOT/
 
-# Command to run the application
-# Use Gunicorn as indicated by your Procfile.
-# This requires your RAG_BOT/bot.py to have a module-level Flask app instance named 'app'.
-# Example: In RAG_BOT/bot.py, after your main_setup_and_run(), add:
-# application = main_setup_and_run(create_app_only=True) # if main_setup_and_run can return the app
-# Or, ensure a global 'app' variable is assigned the Flask instance.
-# CMD ["gunicorn", "--bind", "0.0.0.0:${APP_PORT}", "RAG_BOT.bot:app"]
+# The startup script will download the DB and then execute the CMD.
+ENTRYPOINT ["./startup.sh"]
 CMD ["python", "-m", "RAG_BOT.bot"]
