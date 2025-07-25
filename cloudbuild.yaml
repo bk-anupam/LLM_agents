@@ -32,8 +32,8 @@ steps:
       - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/llm_agents/rag-bot:$COMMIT_SHA'
       - '--region=us-central1'
       - '--platform=managed'
-      # --- Service Configuration ---
-      # These flags mirror the settings in your YAML file.
+      
+      # --- Service Configuration ---      
       - '--cpu-always-on'
       - '--memory=8Gi'
       - '--cpu=2'
@@ -44,20 +44,41 @@ steps:
       - '--port=5000'
       - '--startup-cpu-boost'
       - '--service-account=84009481424-compute@developer.gserviceaccount.com'
+      
       # --- Startup Probe Configuration ---
       - '--startup-probe-timeout=240s'
       - '--startup-probe-period=240s'
       - '--startup-probe-failure-threshold=1'
+      
       # --- Environment Variables ---
       # Use --update-env-vars to set environment variables.
       # For sensitive values, use secrets.
-      - >-
-        --update-env-vars=DEV_MODE=False,USE_POLLING=False,INDEX_ON_STARTUP=False,GCS_VECTOR_STORE_PATH=gs://rag_bot_db,EMBEDDING_MODEL_NAME=paraphrase-multilingual-mpnet-base-v2,RERANKER_MODEL_NAME=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1,LLM_MODEL_NAME=gemini-2.5-flash,LANGUAGE=hi,LOG_LEVEL=INFO,LANGCHAIN_TRACING_V2=true,LANGCHAIN_PROJECT=RAG_BOT,LANGSMITH_ENDPOINT=https://api.smith.langchain.com,ASYNC_OPERATION_TIMEOUT=300,DATA_PATH=./RAG_BOT/data,INDEXED_DATA_PATH=./RAG_BOT/indexed_data,WEBHOOK_URL=https://rag-bot-84009481424.us-central1.run.app,MYPORT=5000
+      - '--update-env-vars=DEV_MODE=False'
+      - '--update-env-vars=USE_POLLING=False'
+      - '--update-env-vars=INDEX_ON_STARTUP=False'
+      - '--update-env-vars=GCS_VECTOR_STORE_PATH=gs://rag_bot_db'
+      - '--update-env-vars=EMBEDDING_MODEL_NAME=paraphrase-multilingual-mpnet-base-v2'
+      - '--update-env-vars=RERANKER_MODEL_NAME=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1'
+      - '--update-env-vars=LLM_MODEL_NAME=gemini-2.5-flash'
+      - '--update-env-vars=LANGUAGE=hi'
+      - '--update-env-vars=LOG_LEVEL=INFO'
+      - '--update-env-vars=LANGCHAIN_TRACING_V2=true'
+      - '--update-env-vars=LANGCHAIN_PROJECT=RAG_BOT'
+      - '--update-env-vars=LANGSMITH_ENDPOINT=https://api.smith.langchain.com'
+      - '--update-env-vars=ASYNC_OPERATION_TIMEOUT=300'
+      - '--update-env-vars=DATA_PATH=./RAG_BOT/data'
+      - '--update-env-vars=INDEXED_DATA_PATH=./RAG_BOT/indexed_data'
+      - '--update-env-vars=WEBHOOK_URL=https://rag-bot-84009481424.us-central1.run.app'
+      - '--update-env-vars=MYPORT=5000'
+      
       # --- Secrets ---
       # Use --update-secrets to securely mount secrets from Secret Manager.
       # The format is SECRET_NAME=secret-id:version
-      - >-
-        --update-secrets=GOOGLE_API_KEY=GOOGLE_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,TAVILY_API_KEY=TAVILY_API_KEY:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,LANGCHAIN_API_KEY=LANGCHAIN_API_KEY:latest
+      - '--update-secrets=GOOGLE_API_KEY=GOOGLE_API_KEY:latest'
+      - '--update-secrets=GEMINI_API_KEY=GEMINI_API_KEY:latest'
+      - '--update-secrets=TAVILY_API_KEY=TAVILY_API_KEY:latest'
+      - '--update-secrets=TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest'
+      - '--update-secrets=LANGCHAIN_API_KEY=LANGCHAIN_API_KEY:latest'
 
 # This specifies how long the build can run.
 timeout: '1800s' # 30 minutes
