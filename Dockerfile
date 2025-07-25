@@ -48,7 +48,8 @@ EXPOSE ${APP_PORT}
  
 # Install runtime dependencies: gsutil and Node.js
 # 1. Install gsutil by copying from the official slim image
-COPY --from=gcr.io/google.com/cloudsdktool/cloud-sdk:slim /google/google-cloud-sdk/ /google/google-cloud-sdk/
+# Use the canonical path to avoid issues with symlinks in the source image.
+COPY --from=gcr.io/google.com/cloudsdktool/cloud-sdk:slim /usr/lib/google-cloud-sdk/ /google/google-cloud-sdk/
 ENV PATH=/google/google-cloud-sdk/bin:$PATH
  
 # 2. Install Node.js (for npx) using NodeSource repository for a lightweight install
@@ -73,6 +74,8 @@ WORKDIR $HOME/app
 COPY --chown=user:user --from=builder /home/user/.local /home/user/.local
 COPY --chown=user:user --from=builder /home/user/.cache/huggingface $HF_HOME
  
+# Verify gsutil is available after copying
+RUN gsutil version || echo "Warning: gsutil not found"
 # Copy the startup script and application code
 COPY --chown=user:user startup.sh ./
 RUN chmod +x ./startup.sh
