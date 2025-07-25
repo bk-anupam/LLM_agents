@@ -1,0 +1,76 @@
+# /home/bk_anupam/code/LLM_agents/cloudbuild.yaml
+steps:
+  # 1. Build the container image
+  # This step uses the standard Docker builder to build the image using your Dockerfile.
+  # The '-t' flag tags the image with a name that includes the project ID, repo name, and commit SHA.
+  # This makes it easy to identify in Artifact Registry.
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/llm_agents/rag-bot:$COMMIT_SHA'
+      - '.'
+
+  # 2. Push the container image to Artifact Registry
+  # This step pushes the tagged image to Google Artifact Registry, where Cloud Run can access it.
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push'
+    args:
+      - 'push'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/llm_agents/rag-bot:$COMMIT_SHA'
+
+  # 3. Deploy the container image to Cloud Run
+  # This is the final step that updates your Cloud Run service with the new image.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'rag-bot' # Your Cloud Run service name
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/llm_agents/rag-bot:$COMMIT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      # --- Service Configuration ---
+      # These flags mirror the settings in your YAML file.
+      - '--cpu-always-on'
+      - '--memory=8Gi'
+      - '--cpu=2'
+      - '--min-instances=1'
+      - '--max-instances=1'
+      - '--timeout=600'
+      - '--concurrency=80'
+      - '--port=5000'
+      - '--startup-cpu-boost'
+      - '--service-account=84009481424-compute@developer.gserviceaccount.com'
+      # --- Startup Probe Configuration ---
+      - '--startup-probe-timeout=240s'
+      - '--startup-probe-period=240s'
+      - '--startup-probe-failure-threshold=1'
+      # --- Environment Variables ---
+      # Use --update-env-vars to set environment variables.
+      # For sensitive values, use secrets.
+      - >-
+        --update-env-vars=DEV_MODE=False,USE_POLLING=False,INDEX_ON_STARTUP=False,GCS_VECTOR_STORE_PATH=gs://rag_bot_db,EMBEDDING_MODEL_NAME=paraphrase-multilingual-mpnet-base-v2,RERANKER_MODEL_NAME=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1,LLM_MODEL_NAME=gemini-2.5-flash,LANGUAGE=hi,LOG_LEVEL=INFO,LANGCHAIN_TRACING_V2=true,LANGCHAIN_PROJECT=RAG_BOT,LANGSMITH_ENDPOINT=https://api.smith.langchain.com,ASYNC_OPERATION_TIMEOUT=300,DATA_PATH=./RAG_BOT/data,INDEXED_DATA_PATH=./RAG_BOT/indexed_data,WEBHOOK_URL=https://rag-bot-84009481424.us-central1.run.app,MYPORT=5000
+      # --- Secrets ---
+      # Use --update-secrets to securely mount secrets from Secret Manager.
+      # The format is SECRET_NAME=secret-id:version
+      - >-
+        --update-secrets=GOOGLE_API_KEY=GOOGLE_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,TAVILY_API_KEY=TAVILY_API_KEY:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,LANGCHAIN_API_KEY=LANGCHAIN_API_KEY:latest
+
+# This specifies how long the build can run.
+timeout: '1800s' # 30 minutes
+
+# This tells Cloud Build to substitute these variables at build time.
+# $PROJECT_ID and $COMMIT_SHA are provided automatically by Cloud Build.
+substitutions:
+  _SERVICE_NAME: 'rag-bot'
+
+# This section defines which images are created by this build.
+# Cloud Build can perform security scans on these images.
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/llm_agents/rag-bot:$COMMIT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

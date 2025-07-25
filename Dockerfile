@@ -2,8 +2,6 @@ FROM python:3.10-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-# Hugging Face Spaces will set the PORT environment variable (typically 7860).
-# Your application (bot.py) reads this PORT variable.
 # EXPOSE informs Docker which port the application inside the container will listen on.
 ENV APP_PORT=5000
 EXPOSE ${APP_PORT}
@@ -51,8 +49,6 @@ RUN mkdir -p "$NVM_DIR" && \
 # This makes node and npm, npx commands globally accessible within the container.
 ENV PATH="$NVM_DIR/versions/node/v${NODE_VERSION}/bin:$PATH"
 
-# In HF docker space The container runs with user ID 1000. To avoid permission issues you should create a user 
-# and set its WORKDIR before any COPY or download (https://huggingface.co/docs/hub/en/spaces-sdks-docker)
 # Set up a new user named "user" with user ID 1000
 RUN useradd -m -s /bin/bash -u 1000 user
 
