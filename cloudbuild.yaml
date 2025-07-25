@@ -48,6 +48,9 @@ steps:
       # --- Startup Probe Configuration ---
       - '--startup-probe=timeoutSeconds=240,periodSeconds=240,failureThreshold=1'      
       
+      # First, explicitly remove the old environment variable type
+      - '--remove-env-vars=LANGCHAIN_API_KEY'
+
       # --- Environment Variables ---
       # Use --update-env-vars to set environment variables.
       # For sensitive values, use secrets.
