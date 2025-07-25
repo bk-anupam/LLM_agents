@@ -46,10 +46,7 @@ steps:
       - '--service-account=84009481424-compute@developer.gserviceaccount.com'
       
       # --- Startup Probe Configuration ---
-      - '--startup-probe=timeoutSeconds=240,periodSeconds=240,failureThreshold=1'      
-      
-      # First, explicitly remove the old environment variable type
-      - '--remove-env-vars=LANGCHAIN_API_KEY'
+      - '--startup-probe=timeoutSeconds=240,periodSeconds=240,failureThreshold=1,tcpSocket.port=5000'                  
 
       # --- Environment Variables ---
       # Use --update-env-vars to set environment variables.
