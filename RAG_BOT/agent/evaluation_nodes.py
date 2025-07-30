@@ -13,8 +13,8 @@ def evaluate_context_node(state: AgentState, llm: ChatGoogleGenerativeAI):
     """
     logger.info("--- Executing Evaluate Context Node ---")
     original_query = state.get('original_query')
-    # Context is now expected to be populated by the rerank_context_node
-    context_to_evaluate = state.get('context') 
+    # retrieved_context is now expected to be populated by the rerank_context_node
+    context_to_evaluate = state.get('retrieved_context') 
 
     # Check if context exists in the state
     if context_to_evaluate is None: 
@@ -90,7 +90,7 @@ def reframe_query_node(state: AgentState, llm: ChatGoogleGenerativeAI):
         # Clear documents before retry
         "documents": [], 
         # Clear concatenated context string
-        "context": None, 
+        "retrieved_context": None, 
         # Reset flags for the new reframed query attempt
         "web_search_attempted": False,
         "last_retrieval_source": None,

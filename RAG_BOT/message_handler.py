@@ -1,7 +1,7 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/message_handler.py
 import datetime
 from RAG_BOT.config import Config
-from RAG_BOT.logger import logger # Corrected import path based on other files
+from RAG_BOT.logger import logger
 from langchain_core.messages import HumanMessage
 from telebot.types import Message
 from langgraph.graph import StateGraph
@@ -20,7 +20,6 @@ class MessageHandler:
             logger.info(f"Creating new session for user {user_id}")
             self.sessions[user_id] = {
                 'last_interaction': datetime.datetime.now(),
-                'conversation': [],
                 'context': {},
                 'language': 'en',  # Default language
                 'mode': 'default'  # Default mode
@@ -28,23 +27,7 @@ class MessageHandler:
         # Ensure essential keys are always present using setdefault
         self.sessions[user_id].setdefault('language', 'en')
         self.sessions[user_id].setdefault('mode', 'default')
-        self.sessions[user_id].setdefault('conversation', [])
         return self.sessions[user_id]
-
-    def _update_session(self, user_id, message, response):
-        """Update the user session with new interaction"""
-        session = self._get_user_session(user_id)
-        session['last_interaction'] = datetime.datetime.now()
-        session['conversation'].append({
-            'user': message,
-            'bot': response,
-            'timestamp': datetime.datetime.now().isoformat()
-        })
-        # Limit conversation history (optional)
-        history_limit = self.config.CONVERSATION_HISTORY_LIMIT or 10
-        if len(session['conversation']) > history_limit:
-            session['conversation'] = session['conversation'][-history_limit:]
-
 
     async def _invoke_agent_and_get_response(self, chat_id: int, language_code: str, mode: str, message: str) -> str:
         """
@@ -52,7 +35,7 @@ class MessageHandler:
         Handles potential errors and unexpected response formats.
         """
         try:
-            logger.info(f"Invoking agent for thread_id={str(chat_id)}, lang='{language_code}', mode='{mode}', query='{message[:50]}...'")
+            logger.info(f"Invoking agent for thread_id={str(chat_id)}, lang='{language_code}', mode='{mode}', query='{message[:50]}...' ")
             config_thread = {"configurable": {"thread_id": str(chat_id)}}
             initial_state = {
                 "messages": [HumanMessage(content=message)],
@@ -107,14 +90,7 @@ class MessageHandler:
                     "- Answer your query (on pdf documents uploaded). Use /query command followed by the query for this\n"
                     "- Index and store in vector DB uploaded pdf documents. Just send the pdf document as a message\n"
                     "- Answer any general query \n"
-                    "- Last message - to see your last message\n"
                     "Just let me know what you need!")
-        elif "last message" == message_lower:
-            if session['conversation']:
-                last_user_message = session['conversation'][-1]['user']
-                response = f"Your last message was: '{last_user_message}'"
-            else:
-                response = "You haven't sent any previous messages in this session."
         else:
             response = await self._invoke_agent_and_get_response(
                 chat_id=incoming_message.chat.id,
@@ -123,6 +99,6 @@ class MessageHandler:
                 message=message
             )
 
-        self._update_session(user_id, message, response)
+        session['last_interaction'] = datetime.datetime.now()
         logger.info(f"Generated response for user {user_id}: {response[:100]}...")
         return response

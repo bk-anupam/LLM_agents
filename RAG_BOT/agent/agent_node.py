@@ -27,12 +27,13 @@ def generate_final_response(state: AgentState, llm: ChatGoogleGenerativeAI) -> D
     mode = state.get('mode', 'default') # Get the mode from the state
 
     # Determine the content to be used for the final answer.
-    content_for_final_answer = state.get('context')
+    content_for_final_answer = state.get('retrieved_context')
     # reranked documents used as context for final answer
     context_docs = state.get('documents', [])
 
     # If no context from retrieval, check if the last message was a direct AI answer.
-    last_message_in_state = state['messages'][-1] if state['messages'] else None
+    messages = state.get('messages', [])
+    last_message_in_state = messages[-1] if messages else None
     if not content_for_final_answer and isinstance(last_message_in_state, AIMessage) and \
        not last_message_in_state.tool_calls and not getattr(last_message_in_state, 'tool_call_chunks', None):
         logger.info("No context from retrieval pipeline. Using content from the last direct AIMessage for final formatting.")
@@ -139,7 +140,7 @@ async def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_to
             # Reset fields for the new phase initiated by this HumanMessage/LLM response
             "evaluation_result": None,
             "documents": [], # Clear previous documents before new tool call
-            "context": None,   # Clear previous concatenated context
+            "retrieved_context": None,   # Clear previous concatenated context
             "last_retrieval_source": None, # Will be set by next tool processing            
             # Preserve retry_attempted if it was set by a preceding node (e.g., reframe_query_node)
             "retry_attempted": state.get('retry_attempted', False)

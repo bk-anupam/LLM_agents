@@ -73,7 +73,10 @@ class Config:
         self.RECONSTRUCT_MURLIS = False
         self.MAX_RECON_MURLIS = self._get_config_value('MAX_RECON_MURLIS', int(os.environ.get('MAX_RECON_MURLIS', 5)))
         # Max chunks to fetch for a single Murli
-        self.MAX_CHUNKS_PER_MURLI_RECON = self._get_config_value('MAX_CHUNKS_PER_MURLI_RECON', int(os.environ.get('MAX_CHUNKS_PER_MURLI_RECON', 20))) 
+        self.MAX_CHUNKS_PER_MURLI_RECON = self._get_config_value(
+            'MAX_CHUNKS_PER_MURLI_RECON', 
+            int(os.environ.get('MAX_CHUNKS_PER_MURLI_RECON', 20))
+        ) 
 
         # Sentence window reconstruction
         self.SENTENCE_WINDOW_RECONSTRUCTION = self._get_config_value(
@@ -84,15 +87,40 @@ class Config:
 
         # For USER_SESSIONS, make it an instance variable for better isolation in tests
         self.USER_SESSIONS = self._get_config_value('USER_SESSIONS', {})
-        self.MAX_CHUNKS_FOR_DATE_FILTER = self._get_config_value('MAX_CHUNKS_FOR_DATE_FILTER', int(os.environ.get('MAX_CHUNKS_FOR_DATE_FILTER', 40)))
-        self.ASYNC_OPERATION_TIMEOUT = self._get_config_value('ASYNC_OPERATION_TIMEOUT', int(os.environ.get('ASYNC_OPERATION_TIMEOUT', 120)))
+        self.MAX_CHUNKS_FOR_DATE_FILTER = self._get_config_value(
+            'MAX_CHUNKS_FOR_DATE_FILTER', 
+            int(os.environ.get('MAX_CHUNKS_FOR_DATE_FILTER', 40))
+        )
+        self.ASYNC_OPERATION_TIMEOUT = self._get_config_value(
+            'ASYNC_OPERATION_TIMEOUT', 
+            int(os.environ.get('ASYNC_OPERATION_TIMEOUT', 120))
+        )
 
         # Add USE_POLLING configuration
         default_use_polling_str = os.environ.get('USE_POLLING', 'False')
         default_use_polling = default_use_polling_str.lower() in ('true', '1', 't')
         self.USE_POLLING = self._get_config_value('USE_POLLING', default_use_polling)
-        self.DEV_MODE = self._get_config_value('DEV_MODE', os.environ.get('DEV_MODE', 'False').lower() in ('true', '1', 't'))
-        self.INDEX_ON_STARTUP = self._get_config_value('INDEX_ON_STARTUP', os.environ.get('INDEX_ON_STARTUP', 'False').lower() in ('true', '1', 't'))
+        self.DEV_MODE = self._get_config_value(
+            'DEV_MODE', 
+            os.environ.get('DEV_MODE', 'False').lower() in ('true', '1', 't')
+        )
+        self.INDEX_ON_STARTUP = self._get_config_value(
+            'INDEX_ON_STARTUP', 
+            os.environ.get('INDEX_ON_STARTUP', 'False').lower() in ('true', '1', 't')
+        )
+        self.SQLITE_DB_PATH = self._get_config_value(
+            'SQLITE_DB_PATH', 
+            os.environ.get('SQLITE_DB_PATH', './RAG_BOT/rag_bot_checkpoints.db')
+        )
+        self.MAX_TOKENS = self._get_config_value('MAX_TOKENS', int(os.environ.get('MAX_TOKENS', 2500)))
+        self.MAX_TOKENS_BEFORE_SUMMARY = self._get_config_value(
+            'MAX_TOKENS_BEFORE_SUMMARY',
+            int(os.environ.get('MAX_TOKENS_BEFORE_SUMMARY', 2500))
+        )
+        self.MAX_SUMMARY_TOKENS = self._get_config_value(
+            'MAX_SUMMARY_TOKENS',
+            int(os.environ.get('MAX_SUMMARY_TOKENS', 1000))
+        )
 
     def _get_config_value(self, key, default_value):
         """Helper to get value from overrides or use default."""
