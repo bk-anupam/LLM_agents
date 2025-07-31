@@ -93,7 +93,7 @@ class Config:
         )
         self.ASYNC_OPERATION_TIMEOUT = self._get_config_value(
             'ASYNC_OPERATION_TIMEOUT', 
-            int(os.environ.get('ASYNC_OPERATION_TIMEOUT', 120))
+            int(os.environ.get('ASYNC_OPERATION_TIMEOUT', 240))
         )
 
         # Add USE_POLLING configuration

@@ -95,13 +95,12 @@ async def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_to
     """
     Handles initial query, decides first action, and generates final response.
     Now ensures final response adheres to JSON format defined in FINAL_ANSWER_PROMPT.
-    """
-    # Helps trace which agent node call
+    """    
     logger.info(f"--- Executing Agent Node ---") 
-    messages = state.get('messages', []) # Ensure messages is a list
-    last_message = messages[-1] if messages else None # Ensure last_message is not None
+    messages = state.get('messages', []) 
+    last_message = messages[-1] if messages else None 
     language_code = state.get('language_code', 'en')
-    mode = state.get('mode', 'default') # Get the mode from the state
+    mode = state.get('mode', 'default') 
 
     # 1. Handle Initial User Query
     if isinstance(last_message, HumanMessage):
@@ -122,10 +121,14 @@ async def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_to
 
         # Prepare messages for LLM with tools
         system_prompt_msg = SystemMessage(content=Config.get_system_prompt(language_code, mode))
-        # Use LLM with tools to decide if tool call is needed
-        # The 'messages' in state already includes the last_message (HumanMessage)
-        # prompt_prefix_messages are inserted before the main history.
-        response = await llm_with_tools.ainvoke([system_prompt_msg] + prompt_prefix_messages + messages)
+                
+        # We pass only the system prompt and the latest human message to ensure the LLM
+        # strictly follows the tool-use rules without being influenced by past turns.
+        # The full history is preserved in the state for the final answer generation step.
+        tool_calling_prompt = [system_prompt_msg] + prompt_prefix_messages + [last_message]
+        
+        logger.info("Invoking LLM for tool-calling decision with an isolated prompt.")
+        response = await llm_with_tools.ainvoke(tool_calling_prompt)
         logger.info("LLM invoked for initial decision.")
 
         # Update state after LLM makes a decision (e.g., calls a tool or answers directly)
