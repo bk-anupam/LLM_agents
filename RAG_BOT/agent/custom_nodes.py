@@ -4,12 +4,13 @@ from langmem.short_term.summarization import (
     SummarizationNode,
     SummarizationResult,
     RunningSummary,
+    PreprocessedMessages,
     _prepare_input_to_summarization_model,
-    _prepare_summarization_result,
     _preprocess_messages as original_preprocess_messages,
     asummarize_messages as original_asummarize,
 )
-from langchain_core.messages import BaseMessage, SystemMessage, AIMessage, ToolMessage
+from langchain_core.messages import BaseMessage
+from langchain_core.prompts.chat import ChatPromptTemplate, ChatPromptValue
 from RAG_BOT.logger import logger
 
 
@@ -47,6 +48,65 @@ def _logged_preprocess_messages(*args, **kwargs):
     }
     # Call the original function with only the expected arguments
     return original_preprocess_messages(**expected_args)
+
+
+def _custom_prepare_summarization_result(
+    *,
+    preprocessed_messages: PreprocessedMessages,
+    messages: List[BaseMessage],
+    existing_summary: RunningSummary | None,
+    running_summary: RunningSummary | None,
+    final_prompt: ChatPromptTemplate,
+) -> SummarizationResult:
+    """
+    A corrected version of the original _prepare_summarization_result.
+    It only applies the final_prompt if a new summary was actually generated in this step,
+    preventing redundant summary messages from being added to the history.
+    """
+    # The key change: check if messages were actually summarized in this run.
+    if preprocessed_messages.messages_to_summarize:
+        # This block now only runs when a new summary has been created.
+        # `running_summary` will be the newly generated summary object.
+        total_summarized_messages = preprocessed_messages.total_summarized_messages + len(
+            preprocessed_messages.messages_to_summarize
+        )
+
+        # This logic prevents re-adding a SystemMessage that might contain an old summary,
+        # which is relevant when overwriting the main message list.
+        include_system_message = preprocessed_messages.existing_system_message and not (
+            existing_summary
+            and existing_summary.summary
+            in preprocessed_messages.existing_system_message.content
+        )
+
+        updated_messages = cast(
+            ChatPromptValue,
+            final_prompt.invoke(
+                {
+                    "system_message": [preprocessed_messages.existing_system_message]
+                    if include_system_message
+                    else [],
+                    "summary": running_summary.summary,
+                    "messages": messages[total_summarized_messages:],
+                }
+            ),
+        )
+        return SummarizationResult(
+            running_summary=running_summary,
+            messages=updated_messages.messages,
+        )
+    else:
+        # No new summary was generated. Return the messages as they are,
+        # only prepending the system message if it exists.
+        # This prevents the final_prompt from being incorrectly applied.
+        return SummarizationResult(
+            running_summary=running_summary,  # Pass through the existing summary object for state continuity
+            messages=(
+                messages
+                if preprocessed_messages.existing_system_message is None
+                else [preprocessed_messages.existing_system_message] + messages
+            ),
+        )
 
 
 async def logged_asummarize_messages(*args, **kwargs):
@@ -101,7 +161,7 @@ async def logged_asummarize_messages(*args, **kwargs):
                 ].id,
             )
 
-        return _prepare_summarization_result(
+        return _custom_prepare_summarization_result(
             preprocessed_messages=preprocessed_messages,
             messages=messages,
             existing_summary=existing_summary,

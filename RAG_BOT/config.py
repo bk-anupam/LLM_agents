@@ -161,6 +161,18 @@ class Config:
         return cls.PROMPTS.get('system_prompt', {}).get('bk_persona', '')
 
     @classmethod
+    def get_router_system_prompt(cls):
+        """Gets the system prompt for the router node."""
+        return cls.PROMPTS.get('system_prompt', {}).get('router', '')
+
+    @classmethod
+    def get_conversational_system_prompt(self, language_code: str):
+        """Gets the conversation system prompt with language instruction."""
+        lang_instruction = self.get_bk_persona_language_instruction(language_code)
+        base_prompt = self.PROMPTS.get('system_prompt', {}).get('conversation', '')
+        return f"{base_prompt}\n{lang_instruction}".strip() if lang_instruction else base_prompt.strip()
+
+    @classmethod
     def get_question_guidance_prompt(cls):
         """Gets the question guidance prompt."""
         return cls.PROMPTS.get('system_prompt', {}).get('question_guidance', '')
@@ -226,12 +238,3 @@ class Config:
         template = cls.PROMPTS.get('guidance_prompt', {}).get('template', '')
         return template.format(current_query=current_query, murli_url=murli_url)
 
-# Example usage (optional, for testing)
-if __name__ == "__main__":    
-    print("\nSystem Prompt:")
-    print(Config.get_system_prompt('en')) # Example for English
-    print("\nReframe Question Prompt:")
-    print(Config.get_reframe_question_prompt())
-    print("\nJudge Prompt Template:")
-    print(Config.get_judge_prompt_template())
-    print(f"\nTelegram Token: {Config.TELEGRAM_BOT_TOKEN}")

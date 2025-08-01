@@ -1,14 +1,14 @@
-# /home/bk_anupam/code/LLM_agents/RAG_BOT/agent/graph_builder.py
 import functools
 from typing import Literal, Optional, List, Dict, Any
 from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import StateGraph, END, START
+from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from sentence_transformers import CrossEncoder # type: ignore
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from RAG_BOT.agent.conversational_node import conversational_node
 from RAG_BOT.config import Config
 from RAG_BOT.logger import logger
 from RAG_BOT.context_retriever_tool import create_context_retriever_tool
@@ -20,6 +20,7 @@ from RAG_BOT.agent.evaluation_nodes import evaluate_context_node, reframe_query_
 from RAG_BOT.agent.process_tool_output_node import process_tool_output_node
 from RAG_BOT.agent.prompts import get_custom_summary_prompt
 from RAG_BOT.agent.custom_nodes import LoggingSummarizationNode
+from RAG_BOT.agent.router_node import router_node, route_query_decision
 
 # --- Conditional Edge Logic ---
 
@@ -108,7 +109,6 @@ async def force_web_search_node(state: AgentState) -> Dict[str, Any]:
     )
     return {"messages": messages + [tool_call_message], "web_search_attempted": True}
 
-# --- Helper Functions for Graph Building ---
 
 def _initialize_llm_and_reranker(config_instance: Config):
     """Initializes the LLM and reranker model."""
@@ -186,15 +186,28 @@ def clear_state_node(state: AgentState) -> AgentState:
     state['web_search_attempted'] = False
     state['last_retrieval_source'] = None
     state['raw_retrieved_docs'] = None
+    state['route_decision'] = None
     
     logger.info("State cleared. Preserved fields: 'messages', 'context', 'language_code', 'mode'.")
     return state
 
 def _define_edges_for_graph(builder: StateGraph):
-    """Defines edges for the LangGraph builder."""
+    """Defines edges for the LangGraph builder with router logic."""
     builder.set_entry_point("clear_state")
     builder.add_edge("clear_state", "summarize_messages")
-    builder.add_edge("summarize_messages", "agent_initial")
+    builder.add_edge("summarize_messages", "router")    
+    # Add conditional routing after router decision
+    builder.add_conditional_edges(
+        "router",
+        route_query_decision,
+        {
+            "rag_path": "agent_initial",
+            "conversational_path": "conversational_handler"
+        }
+    )    
+    # Conversational path goes directly to end
+    builder.add_edge("conversational_handler", END)    
+    # RAG path continues with existing logic
     builder.add_conditional_edges(
         "agent_initial",
         tools_condition,
@@ -238,11 +251,9 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
     tool_invoker_node = ToolNode(tools=available_tools) 
 
     # Bind LLM and Reranker to Nodes
-    agent_node_runnable = functools.partial(
-        agent_node,
-        llm=llm,
-        llm_with_tools=llm_with_tools
-    )
+    agent_node_runnable = functools.partial(agent_node, llm=llm, llm_with_tools=llm_with_tools)    
+    router_node_runnable = functools.partial(router_node,llm=llm)
+    conversational_node_runnable = functools.partial(conversational_node, llm=llm)
     # Bind the loaded reranker model (or None if loading failed)
     # Use a lambda to ensure correct argument passing, especially for config_instance
     # The lambda will receive the 'state' from LangGraph as its first argument.
@@ -253,7 +264,7 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
     )
     evaluate_context_node_runnable = functools.partial(evaluate_context_node, llm=llm)    
     reframe_query_node_runnable = functools.partial(reframe_query_node, llm=llm)
-    
+        
     # Instantiate the summarization node
     summarization_model = llm.bind(generation_config={"max_output_tokens": config_instance.MAX_SUMMARY_TOKENS})
     custom_summary_prompt = get_custom_summary_prompt()
@@ -273,6 +284,8 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
     # Add Nodes
     builder.add_node("clear_state", clear_state_node)
     builder.add_node("summarize_messages", summarization_node)
+    builder.add_node("router", router_node_runnable)
+    builder.add_node("conversational_handler", conversational_node_runnable)  
     builder.add_node("agent_initial", agent_node_runnable)    
     builder.add_node("tool_invoker", tool_invoker_node) 
     builder.add_node("force_web_search", force_web_search_node) 

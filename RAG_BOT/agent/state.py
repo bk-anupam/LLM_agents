@@ -27,3 +27,5 @@ class AgentState(TypedDict):
     mode: Optional[Literal['default', 'research']]
     # Context for the summarization node. Must be named 'context' for SummarizationNode default behavior.
     context: Optional[dict[str, Any]]
+    # Router decision: determines whether to use RAG or conversational path
+    route_decision: Optional[Literal['RAG_QUERY', 'CONVERSATIONAL_QUERY']]
