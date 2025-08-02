@@ -1,5 +1,5 @@
 # Stage 1: Builder stage for Python dependencies and ML models
-FROM python:3.10-slim as builder
+FROM python:3.11-slim as builder
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -39,7 +39,7 @@ CrossEncoder('cross-encoder/mmarco-mMiniLMv2-L12-H384-v1')"
  
  
 # Stage 2: Final runtime image
-FROM python:3.10-slim
+FROM python:3.11-slim
  
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

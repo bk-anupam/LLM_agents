@@ -68,7 +68,11 @@ steps:
       - '--update-env-vars=INDEXED_DATA_PATH=./RAG_BOT/indexed_data'
       - '--update-env-vars=WEBHOOK_URL=https://rag-bot-84009481424.us-central1.run.app'
       - '--update-env-vars=MYPORT=5000'
-      
+      - '--update-env-vars=MAX_TOKENS_BEFORE_SUMMARY=20000'
+      - '--update-env-vars=MAX_SUMMARY_TOKENS=4000'
+      - '--update-env-vars=MAX_TOKENS=100000'
+      - '--update-env-vars=ASYNC_OPERATION_TIMEOUT=240'
+
       # --- Secrets ---
       # Use --update-secrets to securely mount secrets from Secret Manager.
       # The format is SECRET_NAME=secret-id:version
@@ -111,5 +115,5 @@ options:
 #   --service-account=84009481424-compute@developer.gserviceaccount.com \
 #   --startup-probe=timeoutSeconds=240,periodSeconds=240,failureThreshold=1,tcpSocket.port=5000 \
 #   --remove-env-vars=LANGCHAIN_API_KEY \
-#   --update-env-vars=DEV_MODE=False,USE_POLLING=False,INDEX_ON_STARTUP=False,GCS_VECTOR_STORE_PATH=gs://rag_bot_db,EMBEDDING_MODEL_NAME=paraphrase-multilingual-mpnet-base-v2,RERANKER_MODEL_NAME=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1,LLM_MODEL_NAME=gemini-2.5-flash,LANGUAGE=hi,LOG_LEVEL=INFO,LANGCHAIN_TRACING_V2=true,LANGCHAIN_PROJECT=RAG_BOT,LANGSMITH_ENDPOINT=https://api.smith.langchain.com,ASYNC_OPERATION_TIMEOUT=300,DATA_PATH=./RAG_BOT/data,INDEXED_DATA_PATH=./RAG_BOT/indexed_data,WEBHOOK_URL=https://rag-bot-84009481424.us-central1.run.app,MYPORT=5000 \
+#   --update-env-vars=DEV_MODE=False,USE_POLLING=False,INDEX_ON_STARTUP=False,GCS_VECTOR_STORE_PATH=gs://rag_bot_db,EMBEDDING_MODEL_NAME=paraphrase-multilingual-mpnet-base-v2,RERANKER_MODEL_NAME=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1,LLM_MODEL_NAME=gemini-2.5-flash,LANGUAGE=hi,LOG_LEVEL=INFO,LANGCHAIN_TRACING_V2=true,LANGCHAIN_PROJECT=RAG_BOT,LANGSMITH_ENDPOINT=https://api.smith.langchain.com,ASYNC_OPERATION_TIMEOUT=300,DATA_PATH=./RAG_BOT/data,INDEXED_DATA_PATH=./RAG_BOT/indexed_data,WEBHOOK_URL=https://rag-bot-84009481424.us-central1.run.app,MYPORT=5000,MAX_TOKENS_BEFORE_SUMMARY=20000,MAX_SUMMARY_TOKENS=4000,MAX_TOKENS=100000,ASYNC_OPERATION_TIMEOUT=240 \
 #   --update-secrets=GOOGLE_API_KEY=GOOGLE_API_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,TAVILY_API_KEY=TAVILY_API_KEY:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,LANGCHAIN_API_KEY=LANGCHAIN_API_KEY:latest
