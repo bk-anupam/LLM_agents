@@ -29,7 +29,7 @@ if __name__ == '__main__':
             if vectordb is None:
                 logger.error("VectorDB instance is None after initialization and indexing. Cannot build agent.")
                 exit(1)
-            agent = await build_agent(vectordb=vectordb, config_instance=config)
+            agent = await build_agent(vectordb=vectordb, config_instance=config, checkpointer=None)
             logger.info("RAG agent initialized successfully")        
 
             # Example run - User query no longer needs JSON instruction

@@ -1,4 +1,3 @@
-# /home/bk_anupam/code/LLM_agents/RAG_BOT/agent/graph_builder.py
 import functools
 from typing import Literal, Optional, List, Dict, Any
 from langchain_chroma import Chroma
@@ -8,6 +7,8 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from sentence_transformers import CrossEncoder # type: ignore
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from RAG_BOT.agent.conversational_node import conversational_node
 from RAG_BOT.config import Config
 from RAG_BOT.logger import logger
 from RAG_BOT.context_retriever_tool import create_context_retriever_tool
@@ -17,6 +18,9 @@ from RAG_BOT.agent.retrieval_nodes import rerank_context_node
 from RAG_BOT import utils # Ensure utils is importable
 from RAG_BOT.agent.evaluation_nodes import evaluate_context_node, reframe_query_node
 from RAG_BOT.agent.process_tool_output_node import process_tool_output_node
+from RAG_BOT.agent.prompts import get_custom_summary_prompt
+from RAG_BOT.agent.custom_nodes import LoggingSummarizationNode
+from RAG_BOT.agent.router_node import router_node, route_query_decision
 
 # --- Conditional Edge Logic ---
 
@@ -105,7 +109,6 @@ async def force_web_search_node(state: AgentState) -> Dict[str, Any]:
     )
     return {"messages": messages + [tool_call_message], "web_search_attempted": True}
 
-# --- Helper Functions for Graph Building ---
 
 def _initialize_llm_and_reranker(config_instance: Config):
     """Initializes the LLM and reranker model."""
@@ -166,47 +169,79 @@ def route_after_retrieval(state: AgentState) -> Literal["rerank_context", "force
             return "agent_final_answer"
 
 
+def clear_state_node(state: AgentState) -> AgentState:
+    """
+    Clears the transient state fields to prepare for a new query within the same conversation.
+    Preserves long-term state like message history and user preferences.
+    """
+    logger.info("--- Clearing Transient Agent State for New Query ---")
+    
+    # Fields to clear
+    state['original_query'] = None
+    state['current_query'] = None
+    state['retrieved_context'] = None
+    state['documents'] = None
+    state['evaluation_result'] = None
+    state['retry_attempted'] = False
+    state['web_search_attempted'] = False
+    state['last_retrieval_source'] = None
+    state['raw_retrieved_docs'] = None
+    state['route_decision'] = None
+    
+    logger.info("State cleared. Preserved fields: 'messages', 'context', 'language_code', 'mode'.")
+    return state
+
 def _define_edges_for_graph(builder: StateGraph):
-    """Defines edges for the LangGraph builder."""
-    builder.set_entry_point("agent_initial")
+    """Defines edges for the LangGraph builder with router logic."""
+    builder.set_entry_point("clear_state")
+    builder.add_edge("clear_state", "summarize_messages")
+    builder.add_edge("summarize_messages", "router")    
+    # Add conditional routing after router decision
+    builder.add_conditional_edges(
+        "router",
+        route_query_decision,
+        {
+            "rag_path": "agent_initial",
+            "conversational_path": "conversational_handler"
+        }
+    )    
+    # Conversational path goes directly to end
+    builder.add_edge("conversational_handler", END)    
+    # RAG path continues with existing logic
     builder.add_conditional_edges(
         "agent_initial",
-        # Routes to 'tool_invoker' if a tool is called, or '__end__' (agent_final_answer)
-        tools_condition, 
+        tools_condition,
         {
-             # All tool calls go to a single ToolNode
             "tools": "tool_invoker",
-            # If agent decides no tool is needed (e.g. direct answer)
-            "__end__": "agent_final_answer", 
+            "__end__": "agent_final_answer",
         },
     )
-    builder.add_edge("force_web_search", "tool_invoker") # Forced web search goes directly to tool invoker
-    builder.add_edge("tool_invoker", "process_tool_output") 
-    builder.add_conditional_edges( 
+    builder.add_edge("force_web_search", "tool_invoker")
+    builder.add_edge("tool_invoker", "process_tool_output")
+    builder.add_conditional_edges(
         "process_tool_output",
         route_after_retrieval,
         {
             "rerank_context": "rerank_context",
-            "force_web_search": "force_web_search", # If local fails, try web search
-            "agent_final_answer": "agent_final_answer" # No docs found after all attempts
+            "force_web_search": "force_web_search",
+            "agent_final_answer": "agent_final_answer"
         }
     )
     builder.add_edge("rerank_context", "evaluate_context")
     builder.add_conditional_edges(
         "evaluate_context",
-        decide_next_step_after_evaluation, 
+        decide_next_step_after_evaluation,
         {
             "reframe_query": "reframe_query",
             "agent_final_answer": "agent_final_answer",
         }
     )
-    # Reframed query goes back to agent_initial
-    builder.add_edge("reframe_query", "agent_initial") 
+    builder.add_edge("reframe_query", "summarize_messages")
     builder.add_edge("agent_final_answer", END)
 
 
 # --- Graph Builder ---
-async def build_agent(vectordb: Chroma, config_instance: Config) -> StateGraph:
+async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: Optional[BaseCheckpointSaver] = None) -> StateGraph:
     """Builds the multi-node LangGraph agent."""
     llm, reranker_model = _initialize_llm_and_reranker(config_instance)
     ctx_retriever_tool_instance, available_tools = await _prepare_tools(vectordb, config_instance) 
@@ -216,11 +251,9 @@ async def build_agent(vectordb: Chroma, config_instance: Config) -> StateGraph:
     tool_invoker_node = ToolNode(tools=available_tools) 
 
     # Bind LLM and Reranker to Nodes
-    agent_node_runnable = functools.partial(
-        agent_node,
-        llm=llm,
-        llm_with_tools=llm_with_tools
-    )
+    agent_node_runnable = functools.partial(agent_node, llm=llm, llm_with_tools=llm_with_tools)    
+    router_node_runnable = functools.partial(router_node,llm=llm)
+    conversational_node_runnable = functools.partial(conversational_node, llm=llm)
     # Bind the loaded reranker model (or None if loading failed)
     # Use a lambda to ensure correct argument passing, especially for config_instance
     # The lambda will receive the 'state' from LangGraph as its first argument.
@@ -231,13 +264,32 @@ async def build_agent(vectordb: Chroma, config_instance: Config) -> StateGraph:
     )
     evaluate_context_node_runnable = functools.partial(evaluate_context_node, llm=llm)    
     reframe_query_node_runnable = functools.partial(reframe_query_node, llm=llm)
+        
+    # Instantiate the summarization node
+    summarization_model = llm.bind(generation_config={"max_output_tokens": config_instance.MAX_SUMMARY_TOKENS})
+    custom_summary_prompt = get_custom_summary_prompt()
+    summarization_node = LoggingSummarizationNode(
+        input_messages_key="messages",
+        output_messages_key="messages",
+        token_counter=llm.get_num_tokens_from_messages,
+        model=summarization_model,
+        max_tokens=config_instance.MAX_TOKENS,
+        max_tokens_before_summary=config_instance.MAX_TOKENS_BEFORE_SUMMARY,
+        max_summary_tokens=config_instance.MAX_SUMMARY_TOKENS,
+        final_prompt=custom_summary_prompt
+    )
+
     # Define the Graph
     builder = StateGraph(AgentState)
     # Add Nodes
+    builder.add_node("clear_state", clear_state_node)
+    builder.add_node("summarize_messages", summarization_node)
+    builder.add_node("router", router_node_runnable)
+    builder.add_node("conversational_handler", conversational_node_runnable)  
     builder.add_node("agent_initial", agent_node_runnable)    
-    builder.add_node("tool_invoker", tool_invoker_node) # Added generic tool_invoker_node
-    builder.add_node("force_web_search", force_web_search_node) # New node for forced web search
-    builder.add_node("process_tool_output", process_tool_output_node) # New node
+    builder.add_node("tool_invoker", tool_invoker_node) 
+    builder.add_node("force_web_search", force_web_search_node) 
+    builder.add_node("process_tool_output", process_tool_output_node) 
     builder.add_node("rerank_context", rerank_context_node_runnable) 
     builder.add_node("evaluate_context", evaluate_context_node_runnable)
     builder.add_node("reframe_query", reframe_query_node_runnable)
@@ -245,8 +297,11 @@ async def build_agent(vectordb: Chroma, config_instance: Config) -> StateGraph:
 
     _define_edges_for_graph(builder)
 
-    graph = builder.compile()
-    # # Optional: Save graph visualization
+    if checkpointer is not None:
+        graph = builder.compile(checkpointer=checkpointer) 
+    else:
+        graph = builder.compile()
+    # Optional: Save graph visualization
     # try:
     #     graph.get_graph().draw_mermaid_png(output_file_path="rag_agent_graph.png")
     #     logger.info("Saved graph visualization to rag_agent_graph.png")

@@ -16,6 +16,8 @@ from RAG_BOT.file_manager import FileManager
 from RAG_BOT.document_indexer import DocumentIndexer 
 from RAG_BOT.pdf_processor import PdfProcessor
 from RAG_BOT.htm_processor import HtmProcessor 
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
 
 class TelegramBotApp:
@@ -63,12 +65,12 @@ class TelegramBotApp:
             self.loop.close()
             logger.info("Asyncio event loop has been closed.")
 
-    async def initialize_agent_and_handler(self, vectordb_for_agent, config_for_agent):
+    async def initialize_agent_and_handler(self, vectordb, config: Config, checkpointer: BaseCheckpointSaver = None):
         """Initializes RAG agent and MessageHandler using the app's dedicated event loop."""
         logger.info("Initializing RAG agent and MessageHandler in dedicated loop...")
         # When this coroutine is run via run_coroutine_threadsafe on self.loop,
         # `await build_agent` will execute within self.loop's context.
-        self.agent = await build_agent(vectordb=vectordb_for_agent, config_instance=config_for_agent)
+        self.agent = await build_agent(vectordb=vectordb, config_instance=config, checkpointer=checkpointer)
         # MessageHandler itself is sync
         self.handler = MessageHandler(agent=self.agent, config=self.config) 
         logger.info("RAG agent and MessageHandler initialized successfully using dedicated loop.")
@@ -504,7 +506,10 @@ if __name__ == "__main__":
     def main_setup_and_run():
         try:
             config = Config()
-
+            # Initialize in-memory checkpointer for async compatibility
+            checkpointer = InMemorySaver()
+            logger.info("InMemorySaver checkpointer initialized successfully.")
+            
             # Assumes a 'data' folder path exists in .env
             DATA_DIRECTORY = config.DATA_PATH
             logger.info(f"Data directory set to: {DATA_DIRECTORY}")
@@ -534,11 +539,11 @@ if __name__ == "__main__":
 
             # Create bot_app instance. This starts its event loop thread.
             bot_app = TelegramBotApp(config=config, vector_store_instance=vector_store_instance,
-                                     pdf_processor=pdf_processor, htm_processor=htm_processor)
+                                        pdf_processor=pdf_processor, htm_processor=htm_processor)
 
             # Define an async function to perform async initializations
             async def _async_init_for_bot_app():
-                await bot_app.initialize_agent_and_handler(vectordb, config)
+                await bot_app.initialize_agent_and_handler(vectordb, config, checkpointer=checkpointer)
 
             # Run the async initialization (agent building, handler creation) on the bot_app's dedicated event loop.
             logger.info("Submitting async initialization to bot's event loop...")

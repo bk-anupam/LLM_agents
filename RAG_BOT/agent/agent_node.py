@@ -27,12 +27,13 @@ def generate_final_response(state: AgentState, llm: ChatGoogleGenerativeAI) -> D
     mode = state.get('mode', 'default') # Get the mode from the state
 
     # Determine the content to be used for the final answer.
-    content_for_final_answer = state.get('context')
+    content_for_final_answer = state.get('retrieved_context')
     # reranked documents used as context for final answer
     context_docs = state.get('documents', [])
 
     # If no context from retrieval, check if the last message was a direct AI answer.
-    last_message_in_state = state['messages'][-1] if state['messages'] else None
+    messages = state.get('messages', [])
+    last_message_in_state = messages[-1] if messages else None
     if not content_for_final_answer and isinstance(last_message_in_state, AIMessage) and \
        not last_message_in_state.tool_calls and not getattr(last_message_in_state, 'tool_call_chunks', None):
         logger.info("No context from retrieval pipeline. Using content from the last direct AIMessage for final formatting.")
@@ -94,13 +95,12 @@ async def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_to
     """
     Handles initial query, decides first action, and generates final response.
     Now ensures final response adheres to JSON format defined in FINAL_ANSWER_PROMPT.
-    """
-    # Helps trace which agent node call
+    """    
     logger.info(f"--- Executing Agent Node ---") 
-    messages = state.get('messages', []) # Ensure messages is a list
-    last_message = messages[-1] if messages else None # Ensure last_message is not None
+    messages = state.get('messages', []) 
+    last_message = messages[-1] if messages else None 
     language_code = state.get('language_code', 'en')
-    mode = state.get('mode', 'default') # Get the mode from the state
+    mode = state.get('mode', 'default') 
 
     # 1. Handle Initial User Query
     if isinstance(last_message, HumanMessage):
@@ -121,10 +121,14 @@ async def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_to
 
         # Prepare messages for LLM with tools
         system_prompt_msg = SystemMessage(content=Config.get_system_prompt(language_code, mode))
-        # Use LLM with tools to decide if tool call is needed
-        # The 'messages' in state already includes the last_message (HumanMessage)
-        # prompt_prefix_messages are inserted before the main history.
-        response = await llm_with_tools.ainvoke([system_prompt_msg] + prompt_prefix_messages + messages)
+                
+        # We pass only the system prompt and the latest human message to ensure the LLM
+        # strictly follows the tool-use rules without being influenced by past turns.
+        # The full history is preserved in the state for the final answer generation step.
+        tool_calling_prompt = [system_prompt_msg] + prompt_prefix_messages + [last_message]
+        
+        logger.info("Invoking LLM for tool-calling decision with an isolated prompt.")
+        response = await llm_with_tools.ainvoke(tool_calling_prompt)
         logger.info("LLM invoked for initial decision.")
 
         # Update state after LLM makes a decision (e.g., calls a tool or answers directly)
@@ -139,7 +143,7 @@ async def agent_node(state: AgentState, llm: ChatGoogleGenerativeAI, llm_with_to
             # Reset fields for the new phase initiated by this HumanMessage/LLM response
             "evaluation_result": None,
             "documents": [], # Clear previous documents before new tool call
-            "context": None,   # Clear previous concatenated context
+            "retrieved_context": None,   # Clear previous concatenated context
             "last_retrieval_source": None, # Will be set by next tool processing            
             # Preserve retry_attempted if it was set by a preceding node (e.g., reframe_query_node)
             "retry_attempted": state.get('retry_attempted', False)

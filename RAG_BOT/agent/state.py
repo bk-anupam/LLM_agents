@@ -1,17 +1,15 @@
-# /home/bk_anupam/code/LLM_agents/RAG_BOT/agent/state.py
-from typing import List, TypedDict, Optional, Annotated, Literal
+from typing import List, TypedDict, Optional, Annotated, Literal, Any
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 from langchain_core.documents import Document
 
-# --- Agent State ---
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     original_query: Optional[str]
     # Query for the *next* retrieval
     current_query: Optional[str] 
     # Last retrieved context
-    context: Optional[str]       
+    retrieved_context: Optional[str]       
     retry_attempted: bool
     # Evaluation result: 'sufficient', 'insufficient', or None
     evaluation_result: Optional[Literal['sufficient', 'insufficient']]
@@ -27,3 +25,7 @@ class AgentState(TypedDict):
     last_retrieval_source: Optional[Literal["local", "web"]]
     # Current mode of the agent: 'default' or 'research'
     mode: Optional[Literal['default', 'research']]
+    # Context for the summarization node. Must be named 'context' for SummarizationNode default behavior.
+    context: Optional[dict[str, Any]]
+    # Router decision: determines whether to use RAG or conversational path
+    route_decision: Optional[Literal['RAG_QUERY', 'CONVERSATIONAL_QUERY']]

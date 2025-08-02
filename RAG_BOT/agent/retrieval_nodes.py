@@ -22,7 +22,7 @@ def rerank_context_node(state: AgentState, reranker_model: CrossEncoder, app_con
 
     if not retrieved_documents:
         logger.info("No documents found in state to rerank.")
-        return {"context": "", "documents": []}
+        return {"retrieved_context": "", "documents": []}
 
     # Filter for documents with valid content to avoid errors
     docs_to_rerank = [
@@ -33,7 +33,7 @@ def rerank_context_node(state: AgentState, reranker_model: CrossEncoder, app_con
     if not docs_to_rerank:
         logger.info("No document contents found for reranking after filtering.")
         # Return original docs as they are, with empty context
-        return {"context": "", "documents": retrieved_documents}
+        return {"retrieved_context": "", "documents": retrieved_documents}
 
     # Validate reranker and input
     if reranker_model is None:
@@ -41,7 +41,7 @@ def rerank_context_node(state: AgentState, reranker_model: CrossEncoder, app_con
         # Take top N from the original list if no reranker
         top_docs = retrieved_documents[:app_config.RERANK_TOP_N]
         final_context = "\n\n".join([doc.page_content for doc in top_docs])
-        return {"context": final_context, "documents": top_docs}
+        return {"retrieved_context": final_context, "documents": top_docs}
 
     logger.info(f"Reranking {len(docs_to_rerank)} documents for query: '{current_query}'")
     # Prepare pairs for the cross-encoder
@@ -92,10 +92,10 @@ def rerank_context_node(state: AgentState, reranker_model: CrossEncoder, app_con
         logger.info(f"Final reranked context snippet (mode: {mode}): {final_context[:1000]}...")
 
         # Update state with the final context and the sorted, scored, and trimmed documents
-        return {"context": final_context, "documents": reranked_documents}
+        return {"retrieved_context": final_context, "documents": reranked_documents}
 
     except Exception as e:
         logger.error(f"Error during reranking: {e}. Using original context without reranking", exc_info=True)
         # Fallback: use the original concatenated context
         final_context = "\n\n".join([doc.page_content for doc in docs_to_rerank])
-        return {"context": final_context, "documents": docs_to_rerank}
+        return {"retrieved_context": final_context, "documents": docs_to_rerank}
