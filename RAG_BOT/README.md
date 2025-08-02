@@ -1,11 +1,12 @@
 # RAG_BOT: Telegram RAG Agent to answer spiritual questions
 
-This project implements a Telegram bot powered by a Retrieval-Augmented Generation (RAG) agent built with Langchain and LangGraph. The agent is designed to answer questions based on a collection of spiritual documents stored in a ChromaDB vector store.
+This project implements a Telegram bot powered by a sophisticated, stateful agent built with Langchain and LangGraph. The agent is designed to answer questions based on a collection of spiritual documents, but it can also handle general conversation, remembering the context of your chat.
 
 ## Features
 
 *   **Telegram Interface:** Interact with the RAG agent directly through Telegram.
-*   **RAG Pipeline:** Utilizes a sophisticated LangGraph agent for:
+*   **Advanced Agentic Workflow:** Utilizes a robust LangGraph agent for:
+    *   **Intelligent Routing:** The agent first classifies a user's query to decide whether it's a question requiring knowledge retrieval (a "RAG" query) or a general conversational question (e.g., "summarize our chat").
     *   **Hybrid Search:** Combines semantic and lexical search for comprehensive context retrieval from local documents.
     *   **Web Search Fallback:** Automatically uses Tavily tools to search the web if local retrieval yields insufficient context.
     *   **Reranking** retrieved context using a CrossEncoder model for improved relevance.
@@ -17,13 +18,9 @@ This project implements a Telegram bot powered by a Retrieval-Augmented Generati
     *   Upload PDF and HTM documents directly to the Telegram bot for automatic indexing.
     *   Automatic indexing of PDF and HTM documents from a specified data directory on startup.
     *   Language detection for uploaded documents.
-*   **Date Filtering:** Supports filtering queries by date using the format `date:YYYY-MM-DD` within the `/query` command or general messages.
+*   **Conversational Memory:** The agent maintains and summarizes conversation history, allowing it to answer questions about what has been discussed.
 *   **Multi-language Support:** Initial support for English and Hindi, with user-selectable language preference via `/language` command and language detection for uploaded documents.
-*   **Session Management:** Basic in-memory session handling for conversation context (via `MessageHandler`).
 *   **Webhook Deployment:** Designed for deployment using Flask, Gunicorn, and Telegram webhooks.
-*   **Configuration:** Centralized configuration management (`config.py`).
-*   **Logging:** Structured logging for monitoring and debugging (`logger.py`).
-*   **Integration Tests:** Includes tests to verify core functionalities like indexing, retrieval, and agent logic.
 
 ## Technology Stack
 
@@ -39,25 +36,31 @@ This project implements a Telegram bot powered by a Retrieval-Augmented Generati
 
 ## How It Works
 
-Think of the bot as an intelligent assistant that uses a specific process to answer your questions, especially those about the indexed spiritual documents. The agent maintains an internal **AgentState** (a conversational state) that tracks the original query, current query, retrieved documents, evaluation results, and whether web search has been attempted, allowing it to make informed decisions throughout the workflow. Here's the flow:
+The agent's intelligence comes from its explicit, graph-based workflow. It maintains an internal **AgentState** that tracks the full conversation history, allowing it to make smart, context-aware decisions.
 
-1.  **Query Analysis:** First, the agent analyzes your question. Does it need to consult the documents, or is it a general question it already knows?
-2.  **Smart Retrieval (Hybrid Search):** If documents are needed, the agent performs a hybrid search, combining **semantic search** (using embeddings in ChromaDB) and **lexical search** (using BM25) on the local knowledge base to find the most relevant snippets based on your query.
-3.  **Relevance Check:** The agent doesn't just blindly use what it finds. It evaluates if the retrieved information *actually* helps answer your original question.
-4.  **Context Reranking:** The initially retrieved documents are then reranked using a more sophisticated model (CrossEncoder) to further refine the context and bring the most relevant passages to the top.
-5.  **Relevance Evaluation (Post-Reranking):** The agent evaluates if the *reranked* context is sufficient to answer the original question.
-6.  **Self-Correction Loop & Web Search Fallback:**
-    *   If the reranked context from the local vector store is still not good enough, the agent smartly rephrases the query and attempts to retrieve information from the web using **Tavily tools**. This acts as a built-in retry mechanism for better results.
-    *   This web search is specifically triggered when local retrieval fails to provide sufficient context, ensuring the agent tries external sources before giving up.
-7.  **Grounded Generation:** Finally, using the validated and reranked context (from either local documents or web search), the agent generates a clear answer in a structured JSON format. If no relevant context is found even after all attempts, it informs the user gracefully (also in JSON format).
+Here's the step-by-step flow:
 
-This graph-based approach allows the agent to dynamically decide its path, evaluate its own findings, and even self-correct, leading to more accurate and relevant answers.
+1.  **Query Routing:** When a new message arrives, it first goes to a **Router**. This router uses an LLM to classify the user's intent:
+    *   **Conversational Query:** If the user asks something like "summarize our chat" or "what was my first question?", the router directs the flow to a dedicated `conversational_handler`. This node uses the full chat history to generate an answer and the process ends.
+    *   **RAG Query:** If the user asks a knowledge-based question (e.g., "What did Baba say about...?"), the router sends it down the full RAG pipeline.
+
+2.  **The RAG Pipeline:**
+    *   **Tool Calling:** A specialized node uses a focused, "isolated" prompt to reliably decide which tool to call (e.g., `retrieve_context`).
+    *   **Smart Retrieval (Hybrid Search):** The agent performs a hybrid search, combining **semantic search** (using embeddings in ChromaDB) and **lexical search** (using BM25) on the local knowledge base.
+    *   **Sentence Window Retrieval:** To ensure the LLM receives complete context, the agent doesn't just use the single most relevant chunk. Instead, for each retrieved chunk, it reconstructs a "window" of context by also fetching the chunks immediately before and after it from the original document. This prevents issues where the best matching chunk is only part of a sentence or paragraph, giving the LLM a more coherent and comprehensive view of the information before it's passed on for reranking and final answer generation.
+    *   **Context Reranking:** The initially retrieved documents are reranked using a CrossEncoder model to bring the most relevant passages to the top.
+    *   **Relevance Evaluation:** The agent evaluates if the reranked context is sufficient to answer the original question.
+    *   **Self-Correction & Web Fallback:** If local context is insufficient, the agent rephrases the query and attempts to retrieve information from the web using **Tavily tools**. This acts as a built-in retry mechanism.
+    *   **Grounded Generation:** Finally, a dedicated node takes the validated context (from local or web) and the full conversation history to generate a high-quality, grounded answer in a structured JSON format.
+
+This explicit, router-based architecture allows the agent to be both a powerful, accurate RAG system and a coherent, stateful conversationalist without compromising on either capability.
 
 ### Workflow Diagram
 
 The following diagram visualizes the agent's workflow :
 
 ![Agent Workflow](rag_agent_graph.png)
+
 ## Setup
 
 1.  **Clone the repository:**
@@ -117,7 +120,51 @@ The following diagram visualizes the agent's workflow :
     # PORT=5000 # Port for Flask app
     ```
     *   Replace placeholders with your actual credentials and desired settings.
-    *   Ensure the `WEBHOOK_URL` is a publicly accessible HTTPS URL pointing to where your Flask app will run. Tools like `ngrok` can be useful for local development.
+    *   For local development, ensure the `WEBHOOK_URL` is a publicly accessible HTTPS URL pointing to where your Flask app will run. Tools like `ngrok` can be useful for this. For production on Cloud Run, this will be the URL of your service.
+
+## Deployment to Google Cloud Run
+
+This project is designed for production deployment on Google Cloud Run using a container-based workflow. The provided `Dockerfile` and `cloudbuild.yaml` automate this process.
+
+### Prerequisites
+
+Before deploying, ensure you have the following set up in your Google Cloud project:
+
+1.  **Google Cloud Project:** A project with billing enabled.
+2.  **gcloud CLI:** The Google Cloud CLI installed and authenticated (`gcloud auth login`, `gcloud config set project YOUR_PROJECT_ID`).
+3.  **Enabled APIs:** Enable the following APIs in your project:
+    *   Cloud Build API
+    *   Cloud Run Admin API
+    *   Artifact Registry API
+    *   Secret Manager API
+4.  **Artifact Registry:** Create a Docker repository in Artifact Registry to store your container images. The `cloudbuild.yaml` assumes a repository named `cloud-run-source-deploy` in the `us-central1` region.
+5.  **Secret Manager:** Store all sensitive credentials (API keys, tokens) as secrets in Google Secret Manager. The `cloudbuild.yaml` is configured to securely mount these secrets into the Cloud Run service. The required secrets are:
+    *   `GOOGLE_API_KEY`
+    *   `GEMINI_API_KEY`
+    *   `TAVILY_API_KEY`
+    *   `TELEGRAM_BOT_TOKEN`
+    *   `LANGCHAIN_API_KEY`
+6.  **Google Cloud Storage (GCS):** Create a GCS bucket to store the ChromaDB vector store persistently. The `startup.sh` script in the Docker image will download the database from this bucket on startup. Update the `GCS_VECTOR_STORE_PATH` environment variable in `cloudbuild.yaml` to point to your bucket (e.g., `gs://your-rag-bot-bucket`).
+
+### Deployment Process
+
+The deployment is automated using Cloud Build.
+
+1.  **Dockerfile:** The `Dockerfile` is a multi-stage build file that:
+    *   **Builder Stage:** Installs Python dependencies and pre-downloads and caches the large embedding and reranker models from Hugging Face. This makes the final image smaller and startup times faster.
+    *   **Runtime Stage:** Creates a lean final image, copies the installed dependencies and cached models from the builder stage, installs `gsutil` for GCS access, and sets up the application code.
+
+2.  **cloudbuild.yaml:** This file defines a three-step CI/CD pipeline:
+    *   **Build:** Builds the Docker image using the `Dockerfile`.
+    *   **Push:** Pushes the built image to your Artifact Registry repository.
+    *   **Deploy:** Deploys the new image to your Cloud Run service (`rag-bot`). This step also configures all necessary service settings, including memory, CPU, environment variables, and mounts the secrets from Secret Manager.
+
+3.  **Triggering the Deployment:**
+    To deploy the agent, run the following command from the root of the project directory (`LLM_agents`):
+    ```bash
+    gcloud builds submit --config cloudbuild.yaml .
+    ```
+    Cloud Build will execute the steps defined in `cloudbuild.yaml`, and your Cloud Run service will be updated with the new version of the bot. The first deployment will create the service. After deployment, remember to set the Telegram webhook to your new Cloud Run service URL.
 
 ## Usage
 
@@ -144,10 +191,8 @@ The following diagram visualizes the agent's workflow :
     *   **Set Language:** Use `/language hindi` or `/language english` to set your preferred language for bot responses.
     *   **Upload Documents:** Send PDF or HTM documents directly to the chat to have them indexed. The bot will attempt to detect the document's language and index it.
     *   **Query Documents:**
-        *   Use the `/query` command: `/query What is the essence of the Murli?`
-        *   Query with a date filter: `/query Summarize the main points date:1969-01-18`
         *   Send a general message: `What were the main points about soul consciousness on 1969-01-23?` (The agent will attempt retrieval).
-    *   **General Questions:** Ask general knowledge questions (e.g., "What is the capital of France?"). The agent should answer directly without using the retrieval tool.
+    *   **Conversational Questions:** Ask questions about the chat itself (e.g., "summarize our conversation"). The agent will use its memory to answer.
 
 ## Running Tests
 

@@ -25,3 +25,4 @@ langchain-mcp-adapters
 rank_bm25
 langsmith
 google-cloud-secret-manager
+langmem
