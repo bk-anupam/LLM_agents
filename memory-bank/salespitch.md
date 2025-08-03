@@ -6,7 +6,7 @@ In our journey of self-realization, we often seek to deepen our understanding of
 
 ## Introducing the RAG_BOT: Your AI-Powered Spiritual Study Companion
 
-Imagine having a dedicated teacher, available 24/7 on your phone, ready to answer your deepest questions with wisdom drawn directly from the murlis.
+Imagine having a dedicated teacher, available 24/7 on your phone, ready to answer your deepest questions with wisdom drawn directly from the divine knowledge.
 
 The **RAG_BOT** is not just another chatbot. It is a sophisticated, AI-powered agent designed exclusively for spiritual seekers on the path of Rajyoga. It has been meticulously trained to understand the nuances of Brahmakumaris philosophy and to provide answers that are accurate, context-aware, and grounded in the pure knowledge of the Brahmakumaris spiritual texts.
 
