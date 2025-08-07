@@ -1,7 +1,6 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/vector_store.py
 from collections import defaultdict
 import os
-import sys
 import datetime
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -159,51 +158,97 @@ class VectorStore:
     
     def log_all_indexed_metadata(self):
         """
-        Retrieves and logs the date, is_avyakt, and language metadata for ALL indexed documents.
-        Groups and counts by (date, is_avyakt, language).
+        Retrieves and logs a structured, elegant summary of all indexed documents,
+        grouped by language, type, and year, including month-day details.
+        The entire summary is logged in a single, multi-line statement.
         """
         if not hasattr(self, 'vectordb') or self.vectordb is None:
             logger.error("VectorDB instance not available for metadata retrieval.")
             return
         try:
-            logger.info("Attempting to retrieve metadata for ALL indexed documents...")
             all_data = self.vectordb.get(include=['metadatas'])
-            if all_data and all_data.get('ids'):
-                all_metadatas = all_data.get('metadatas', [])
-                total_docs = len(all_data['ids'])
-                logger.info(f"Retrieved metadata for {total_docs} documents.")
-                if not all_metadatas:
-                    logger.warning("Retrieved document IDs but no corresponding metadata.")
-                    return
-                # Structure: {(date, is_avyakt, language): count}
-                metadata_summary = defaultdict(int)
-                missing_metadata_count = 0
-                for metadata in all_metadatas:
-                    date = metadata.get('date', 'N/A')
-                    is_avyakt = metadata.get('is_avyakt', 'N/A')
-                    language = metadata.get('language', 'N/A')
-                    if date == 'N/A' and is_avyakt == 'N/A' and language == 'N/A':
-                        missing_metadata_count += 1
-                    else:
-                        metadata_summary[(date, is_avyakt, language)] += 1
-                logger.info("--- Logging Date, Avyakt Status, and Language for All Indexed Documents ---")
-                if metadata_summary:
-                    # Sort by date, then is_avyakt (converted to string for comparison), then language for consistent logging
-                    # Use a custom key to handle potential non-boolean types for is_avyakt during sorting
-                    for (date, is_avyakt, language), count in sorted(metadata_summary.items(), key=lambda item: (item[0][0], str(item[0][1]), item[0][2])):
-                        avyakt_str = "Avyakt" if is_avyakt is True else "Sakar/Other" if is_avyakt is False else "Unknown Status"
-                        logger.info(f"Date: {date} - Type: {avyakt_str}, Language: {language}, Count: {count}")
-                else:
-                    logger.info("No documents with date, is_avyakt, or language metadata found.")
-
-                if missing_metadata_count > 0:
-                    logger.warning(f"Found {missing_metadata_count} documents missing date, is_avyakt, and language metadata.")
-
-                logger.info("--- Finished Logging All Indexed Metadata ---")
-            else:
+            
+            if not all_data or not all_data.get('ids'):
                 logger.info("ChromaDB index appears to be empty. No metadata to retrieve.")
+                return
+
+            all_metadatas = all_data.get('metadatas', [])
+            total_chunks = len(all_data['ids'])
+            
+            if not all_metadatas:
+                logger.warning("Retrieved document IDs but no corresponding metadata.")
+                return
+
+            # --- Data Aggregation ---
+            summary_data = defaultdict(lambda: {
+                'total_chunks': 0,
+                'types': defaultdict(lambda: {
+                    'count': 0,
+                    'dates': [],
+                    'years': defaultdict(lambda: defaultdict(set))
+                })
+            })
+
+            for metadata in all_metadatas:
+                lang = metadata.get('language', 'N/A')
+                is_avyakt = metadata.get('is_avyakt')
+                date_str = metadata.get('date')
+
+                summary_data[lang]['total_chunks'] += 1
+                
+                type_key = "Avyakt" if is_avyakt is True else "Sakar/Other" if is_avyakt is False else "Unknown Status"
+                
+                type_summary = summary_data[lang]['types'][type_key]
+                type_summary['count'] += 1
+
+                if date_str:
+                    try:
+                        dt_obj = datetime.datetime.strptime(date_str, '%Y-%m-%d')
+                        type_summary['dates'].append(dt_obj)
+                        type_summary['years'][dt_obj.year][dt_obj.month].add(dt_obj.day)
+                    except (ValueError, TypeError):
+                        logger.debug(f"Could not parse date '{date_str}' for summary.")
+
+            # --- Build the Summary String ---
+            summary_lines = [
+                "\n--- Indexed Documents Summary ---",
+                f"Total Chunks Indexed: {total_chunks}"
+            ]
+
+            month_map = {1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun', 
+                         7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'}
+
+            for lang, lang_data in sorted(summary_data.items()):
+                summary_lines.append("") # Blank line for spacing
+                summary_lines.append(f"Language: {lang} (Total Chunks: {lang_data['total_chunks']})")
+                
+                for type_key, type_data in sorted(lang_data['types'].items()):
+                    summary_lines.append(f"  - Type: {type_key}")
+                    summary_lines.append(f"    - Chunk Count: {type_data['count']}")
+                    
+                    if type_data['dates']:
+                        min_date = min(type_data['dates']).strftime('%Y-%m-%d')
+                        max_date = max(type_data['dates']).strftime('%Y-%m-%d')
+                        summary_lines.append(f"    - Date Range: {min_date} to {max_date}")
+                    
+                    if type_data['years']:
+                        summary_lines.append("    - Documents per Year:")
+                        for year, months_data in sorted(type_data['years'].items()):
+                            monthly_breakdown = []
+                            for month_num, days_set in sorted(months_data.items()):
+                                month_name = month_map.get(month_num, '???')
+                                days_str = ",".join(map(str, sorted(list(days_set))))
+                                monthly_breakdown.append(f"{month_name}({days_str})")
+                            
+                            summary_lines.append(f"      - {year}: {', '.join(monthly_breakdown)}")
+
+            summary_lines.append("--- End of Summary ---")
+            
+            # --- Log the entire summary in one go ---
+            logger.info("\n".join(summary_lines))
+
         except Exception as e:
-            logger.error(f"Error retrieving all metadata from ChromaDB: {e}", exc_info=True)
+            logger.error(f"Error generating indexed metadata summary: {e}", exc_info=True)
     
 
     def query_index(self, query, k=25, date_filter=None, language: str = None):
