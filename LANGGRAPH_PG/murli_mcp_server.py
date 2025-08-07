@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import os
 import sys
-from RAG_BOT.logger import logger
+from RAG_BOT.src.logger import logger
 import datetime
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings

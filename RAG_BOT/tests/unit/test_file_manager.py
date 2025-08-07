@@ -2,7 +2,7 @@ import os
 import shutil
 import unittest
 from unittest.mock import patch, MagicMock
-from RAG_BOT.file_manager import FileManager
+from RAG_BOT.src.file_manager import FileManager
 
 class DummyConfig:
     def __init__(self, indexed_data_path):
