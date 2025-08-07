@@ -85,8 +85,6 @@ class Config:
         )
         self.SENTENCE_WINDOW_SIZE = self._get_config_value('SENTENCE_WINDOW_SIZE', int(os.environ.get('SENTENCE_WINDOW_SIZE', 2)))
 
-        # For USER_SESSIONS, make it an instance variable for better isolation in tests
-        self.USER_SESSIONS = self._get_config_value('USER_SESSIONS', {})
         self.MAX_CHUNKS_FOR_DATE_FILTER = self._get_config_value(
             'MAX_CHUNKS_FOR_DATE_FILTER', 
             int(os.environ.get('MAX_CHUNKS_FOR_DATE_FILTER', 40))
@@ -110,7 +108,7 @@ class Config:
         )
         self.SQLITE_DB_PATH = self._get_config_value(
             'SQLITE_DB_PATH', 
-            os.environ.get('SQLITE_DB_PATH', './RAG_BOT/rag_bot_checkpoints.db')
+            os.environ.get('SQLITE_DB_PATH', './RAG_BOT/rag_bot_sqlite.db')
         )
         self.MAX_TOKENS = self._get_config_value('MAX_TOKENS', int(os.environ.get('MAX_TOKENS', 2500)))
         self.MAX_TOKENS_BEFORE_SUMMARY = self._get_config_value(
@@ -237,4 +235,3 @@ class Config:
         murli_url = url_template.format(date=formatted_date_for_url) if url_template and formatted_date_for_url else ""
         template = cls.PROMPTS.get('guidance_prompt', {}).get('template', '')
         return template.format(current_query=current_query, murli_url=murli_url)
-

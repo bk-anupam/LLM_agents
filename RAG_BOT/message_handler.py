@@ -10,24 +10,8 @@ from RAG_BOT.utils import parse_json_answer
 
 class MessageHandler:
     def __init__(self, agent: StateGraph, config: Config):
-        # Store user session data (could be moved to a database for persistence)
         self.config = config
-        self.sessions = config.USER_SESSIONS
         self.agent = agent
-
-    def _get_user_session(self, user_id):
-        if user_id not in self.sessions:
-            logger.info(f"Creating new session for user {user_id}")
-            self.sessions[user_id] = {
-                'last_interaction': datetime.datetime.now(),
-                'context': {},
-                'language': 'en',  # Default language
-                'mode': 'default'  # Default mode
-            }
-        # Ensure essential keys are always present using setdefault
-        self.sessions[user_id].setdefault('language', 'en')
-        self.sessions[user_id].setdefault('mode', 'default')
-        return self.sessions[user_id]
 
     async def _invoke_agent_and_get_response(self, chat_id: int, language_code: str, mode: str, message: str) -> str:
         """
@@ -79,7 +63,6 @@ class MessageHandler:
              return "Sorry, I didn't receive any text."
 
         logger.info(f"Processing message from {user_id}: {message[:100]}...")
-        session = self._get_user_session(user_id)
         message_lower = message.lower().strip()
         
         greetings = {'hello', 'hi', 'hey'}
@@ -99,6 +82,5 @@ class MessageHandler:
                 message=message
             )
 
-        session['last_interaction'] = datetime.datetime.now()
         logger.info(f"Generated response for user {user_id}: {response[:100]}...")
         return response
