@@ -19,6 +19,7 @@ from RAG_BOT.htm_processor import HtmProcessor
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from RAG_BOT.user_settings_manager import UserSettingsManager
+from RAG_BOT.update_manager import UpdateManager
 import sqlite3
 
 
@@ -31,6 +32,10 @@ class TelegramBotApp:
 
         # Initialize the UserSettingsManager
         self.user_settings_manager = UserSettingsManager(db_path=config.SQLITE_DB_PATH)
+        
+        # Initialize the UpdateManager to handle duplicate messages
+        self.update_manager = UpdateManager(db_path=config.SQLITE_DB_PATH)
+        self.update_manager.cleanup_old_updates() # Clean up old records on startup
 
         # Initialize attributes that will be set later
         self.agent = None
@@ -118,6 +123,14 @@ class TelegramBotApp:
                 try:
                     json_data = request.get_json()
                     update = Update.de_json(json_data)
+                    
+                    # Idempotency check to prevent processing duplicate updates during cold starts
+                    if self.update_manager.is_update_processed(update.update_id):
+                        logger.info(f"Duplicate update ID {update.update_id} received, ignoring.")
+                        return jsonify({"status": "ok, duplicate"})
+                    
+                    self.update_manager.mark_update_as_processed(update.update_id)
+
                     self.bot.process_new_updates([update])
                     return jsonify({"status": "ok"})
                 except Exception as e:

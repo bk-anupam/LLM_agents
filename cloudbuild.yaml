@@ -33,11 +33,14 @@ steps:
       - '--region=us-central1'
       - '--platform=managed'
       
-      # --- Service Configuration ---      
+      # --- Service Configuration ---
       - '--no-cpu-throttling'
       - '--memory=8Gi'
       - '--cpu=2'
-      - '--min-instances=1'
+      # Set to 0 to allow scaling to zero for cost-saving in development.
+      # This makes cold starts likely. The application implements idempotency
+      # checks to handle duplicate webhook calls from Telegram during these cold starts.
+      - '--min-instances=0'
       - '--max-instances=1'
       - '--timeout=600'
       - '--concurrency=80'
