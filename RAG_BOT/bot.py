@@ -18,6 +18,9 @@ from RAG_BOT.pdf_processor import PdfProcessor
 from RAG_BOT.htm_processor import HtmProcessor 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from RAG_BOT.user_settings_manager import UserSettingsManager
+from RAG_BOT.update_manager import UpdateManager
+import sqlite3
 
 
 class TelegramBotApp:
@@ -26,6 +29,13 @@ class TelegramBotApp:
         # Initialize Flask app
         self.app = Flask(__name__)
         self.config = config
+
+        # Initialize the UserSettingsManager
+        self.user_settings_manager = UserSettingsManager(db_path=config.SQLITE_DB_PATH)
+        
+        # Initialize the UpdateManager to handle duplicate messages
+        self.update_manager = UpdateManager(db_path=config.SQLITE_DB_PATH)
+        self.update_manager.cleanup_old_updates() # Clean up old records on startup
 
         # Initialize attributes that will be set later
         self.agent = None
@@ -113,6 +123,14 @@ class TelegramBotApp:
                 try:
                     json_data = request.get_json()
                     update = Update.de_json(json_data)
+                    
+                    # Idempotency check to prevent processing duplicate updates during cold starts
+                    if self.update_manager.is_update_processed(update.update_id):
+                        logger.info(f"Duplicate update ID {update.update_id} received, ignoring.")
+                        return jsonify({"status": "ok, duplicate"})
+                    
+                    self.update_manager.mark_update_as_processed(update.update_id)
+
                     self.bot.process_new_updates([update])
                     return jsonify({"status": "ok"})
                 except Exception as e:
@@ -199,59 +217,64 @@ class TelegramBotApp:
         parts = message.text.split(maxsplit=1)
 
         if len(parts) < 2:
-            # Fetch usage help from config
-            usage_text = self.config.get_user_message('language_usage_help',
-                                                      "Usage: /language <language>\nSupported languages: english, hindi")
+            usage_text = self.config.get_user_message('language_usage_help', "Usage: /language <english|hindi>")
             self.bot.reply_to(message, usage_text)
             return
 
         lang_input = parts[1].strip().lower()
-        lang_code = None
-        if lang_input == 'english':
-            lang_code = 'en'
-        elif lang_input == 'hindi':
-            lang_code = 'hi'
-        else:
-            unsupported_text = self.config.get_user_message('language_unsupported',
-                                                            "Unsupported language. Please use 'english' or 'hindi'.")
+        lang_code = {'english': 'en', 'hindi': 'hi'}.get(lang_input)
+
+        if not lang_code:
+            unsupported_text = self.config.get_user_message('language_unsupported', "Unsupported language. Please use 'english' or 'hindi'.")
             self.bot.reply_to(message, unsupported_text)
             return
 
-        # Initialize session for the user if it doesn't exist
-        self.config.USER_SESSIONS.setdefault(user_id, {})
-        # Store the language preference
-        self.config.USER_SESSIONS[user_id]['language'] = lang_code
-        logger.info(f"Set language preference for user {user_id} to '{lang_code}'")
-        # Get confirmation message in the selected language (fetch from prompts or use defaults)
-        confirmation_prompt_key = f"language_set_{lang_code}"
-        # Define defaults just in case the keys are missing from prompts.yaml
-        default_confirmations = {'en': "Language set to English.", 'hi': "भाषा हिंदी में सेट कर दी गई है।"}
-        # Use the new config method to get the message
-        reply_text = self.config.get_user_message(confirmation_prompt_key, default_confirmations[lang_code])
-        self.bot.reply_to(message, reply_text)
+        # Submit the async task to the dedicated event loop
+        future = asyncio.run_coroutine_threadsafe(
+            self.user_settings_manager.update_user_settings(user_id, language_code=lang_code),
+            self.loop
+        )
+        try:
+            future.result(timeout=10) # Short timeout for DB update
+            logger.info(f"Successfully set language for user {user_id} to '{lang_code}'")
+            confirmation_key = f"language_set_{lang_code}"
+            defaults = {'en': "Language set to English.", 'hi': "भाषा हिंदी में सेट कर दी गई है।"}
+            reply_text = self.config.get_user_message(confirmation_key, defaults[lang_code])
+            self.bot.reply_to(message, reply_text)
+        except Exception as e:
+            logger.error(f"Failed to update language settings for user {user_id}: {e}", exc_info=True)
+            self.bot.reply_to(message, "Sorry, there was an error saving your preference.")
+
 
     def handle_mode_command(self, message: Message):
         """Handles the /mode command to set user response mode."""
         user_id = message.from_user.id
         parts = message.text.split(maxsplit=1)
 
+        async def get_and_reply_current_mode():
+            settings = await self.user_settings_manager.get_user_settings(user_id)
+            self.bot.reply_to(message, f"Current mode is '{settings['mode']}'. Usage: /mode <default|research>")
+
         if len(parts) < 2:
-            # Fetch current mode from session or default
-            session = self.config.USER_SESSIONS.setdefault(user_id, {})
-            current_mode = session.get('mode', 'default')
-            self.bot.reply_to(message, f"Current mode is '{current_mode}'. Usage: /mode <default|research>")
+            asyncio.run_coroutine_threadsafe(get_and_reply_current_mode(), self.loop)
             return
 
         new_mode = parts[1].strip().lower()
-        if new_mode in ['default', 'research']:
-            # Initialize session for the user if it doesn't exist
-            self.config.USER_SESSIONS.setdefault(user_id, {})
-            # Store the mode preference
-            self.config.USER_SESSIONS[user_id]['mode'] = new_mode
+        if new_mode not in ['default', 'research']:
+            self.bot.reply_to(message, "Invalid mode. Please use 'default' or 'research'.")
+            return
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.user_settings_manager.update_user_settings(user_id, mode=new_mode),
+            self.loop
+        )
+        try:
+            future.result(timeout=10)
             logger.info(f"Set mode preference for user {user_id} to '{new_mode}'")
             self.bot.reply_to(message, f"Mode set to '{new_mode}'.")
-        else:
-            self.bot.reply_to(message, "Invalid mode. Please use 'default' or 'research'.")
+        except Exception as e:
+            logger.error(f"Failed to update mode settings for user {user_id}: {e}", exc_info=True)
+            self.bot.reply_to(message, "Sorry, there was an error saving your preference.")
 
 
     def _cleanup_uploaded_file(self, file_path, processed_successfully):
@@ -430,9 +453,12 @@ class TelegramBotApp:
         Returns the response string.
         """
         user_id = message.from_user.id
-        session = self.config.USER_SESSIONS.setdefault(user_id, {})
-        user_lang = session.get('language', 'en')
-        user_mode = session.get('mode', 'default') # Get mode from session
+        
+        # Get user settings from the database
+        settings = await self.user_settings_manager.get_user_settings(user_id)
+        user_lang = settings.get('language_code', 'en')
+        user_mode = settings.get('mode', 'default')
+        
         logger.info(f"Processing message for user {user_id} in async core: '{message.text[:100]}...' (Lang: {user_lang}, Mode: {user_mode})")
 
         try:

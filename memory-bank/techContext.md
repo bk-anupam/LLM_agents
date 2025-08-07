@@ -8,6 +8,7 @@ This document provides context on the technologies used, development setup, tech
 - Langchain & LangGraph
 - Google Generative AI (Gemini)
 - ChromaDB
+- Tavily (for web search)
 - Sentence Transformers (via langchain-huggingface and sentence-transformers)
 - pyTelegramBotAPI
 - Flask
@@ -34,6 +35,7 @@ This document provides context on the technologies used, development setup, tech
 - langchain
 - langgraph
 - google-generativeai
+- tavily-python
 - chromadb
 - sentence-transformers
 - pyTelegramBotAPI
@@ -42,8 +44,9 @@ This document provides context on the technologies used, development setup, tech
 
 ## Tool Usage Patterns
 
-- Development and orchestration use Python, Langchain, and LangGraph.
+- Development and orchestration use Python, Langchain, and LangGraph to define a stateful, conditional workflow with routing between RAG and conversational paths.
 - Document embeddings and reranking use Sentence Transformers and CrossEncoder.
+- Web search fallback is handled by Tavily.
 - Telegram bot interactions handled via pyTelegramBotAPI.
 - Webhooks managed by Flask and Gunicorn.
 - Vector storage and retrieval via ChromaDB.
