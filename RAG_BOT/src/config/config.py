@@ -110,6 +110,10 @@ class Config:
             'SQLITE_DB_PATH', 
             os.environ.get('SQLITE_DB_PATH', './RAG_BOT/rag_bot_sqlite.db')
         )
+        self.GCP_PROJECT_ID = self._get_config_value(
+            'GCP_PROJECT_ID',
+            os.environ.get('GCP_PROJECT_ID', 'ardent-justice-466212-b8')
+        )
         self.MAX_TOKENS = self._get_config_value('MAX_TOKENS', int(os.environ.get('MAX_TOKENS', 2500)))
         self.MAX_TOKENS_BEFORE_SUMMARY = self._get_config_value(
             'MAX_TOKENS_BEFORE_SUMMARY',
@@ -196,7 +200,7 @@ class Config:
         
         lang_instruction = cls.get_final_answer_language_instruction(language_code) # Fetch dynamic instruction based on arg
         
-        # Find the position of 'CRITICAL INSTRUCTION:...'
+        # Find the position of 'CRITICAL INSTRUCTION:...' 
         insertion_point_str = "CRITICAL INSTRUCTION:"
         insertion_point = base_template.find(insertion_point_str)
         

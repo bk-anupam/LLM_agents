@@ -19,7 +19,6 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from RAG_BOT.src.persistence.user_settings_manager import UserSettingsManager
 from RAG_BOT.src.persistence.update_manager import UpdateManager
-import sqlite3
 
 
 class TelegramBotApp:
@@ -30,10 +29,10 @@ class TelegramBotApp:
         self.config = config
 
         # Initialize the UserSettingsManager
-        self.user_settings_manager = UserSettingsManager(db_path=config.SQLITE_DB_PATH)
+        self.user_settings_manager = UserSettingsManager(project_id=config.GCP_PROJECT_ID)
         
         # Initialize the UpdateManager to handle duplicate messages
-        self.update_manager = UpdateManager(db_path=config.SQLITE_DB_PATH)
+        self.update_manager = UpdateManager(project_id=config.GCP_PROJECT_ID)
         self.update_manager.cleanup_old_updates() # Clean up old records on startup
 
         # Initialize attributes that will be set later

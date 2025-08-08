@@ -90,6 +90,9 @@ The following diagram visualizes the agent's workflow :
     # Google Gemini
     GEMINI_API_KEY="YOUR_GOOGLE_API_KEY"
 
+    # Google Cloud Project ID (required for Firestore)
+    GCP_PROJECT_ID="your-gcp-project-id"
+
     # Tavily (for web search fallback)
     TAVILY_API_KEY="YOUR_TAVILY_API_KEY"
 

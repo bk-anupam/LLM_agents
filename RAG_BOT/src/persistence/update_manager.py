@@ -1,79 +1,75 @@
-import sqlite3
+from google.cloud import firestore
 import time
+from google.cloud.firestore_v1.base_query import FieldFilter
 from RAG_BOT.src.logger import logger
 
 class UpdateManager:
     """
-    UpdateManager handles tracking and cleanup of processed update IDs using a SQLite database.
+    The UpdateManager class is a crucial component for making the Telegram bot robust and reliable. 
+    Its primary purpose is to prevent the bot from processing the same message update more than once. 
+    his is a common challenge with webhook-based bots, especially in serverless environments where a 
+    "cold start" can cause the service to be slow to respond, leading Telegram to retry sending the 
+    same update. This class ensures "idempotency" by keeping a record of every update ID it has already seen.
 
     Attributes:
-        db_path (str): Path to the SQLite database file.
         retention_period_seconds (int): Time in seconds to retain processed update records (default: 3 days).
-        _conn (sqlite3.Connection): SQLite database connection object.
-
     """
 
-    def __init__(self, db_path: str, retention_period_seconds: int = 259200): # 3 days
-        self.db_path = db_path
+    def __init__(self, project_id: str, db_name: str = "rag-bot-firestore-db", retention_period_seconds: int = 259200): # 3 days
+        self.db = firestore.Client(project=project_id, database=db_name)
+        self.collection_ref = self.db.collection('processed_updates')
         self.retention_period_seconds = retention_period_seconds
-        self._conn = None
-        self._ensure_connection()
-        self._create_table()
-
-    def _ensure_connection(self):
-        if self._conn is None:
-            try:
-                self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
-                logger.info("Successfully connected to SQLite database for UpdateManager.")
-            except sqlite3.Error as e:
-                logger.error(f"Error connecting to SQLite database: {e}", exc_info=True)
-                raise
-
-    def _create_table(self):
-        try:
-            with self._conn:
-                self._conn.execute("""
-                    CREATE TABLE IF NOT EXISTS processed_updates (
-                        update_id INTEGER PRIMARY KEY,
-                        timestamp INTEGER NOT NULL
-                    )
-                """)
-                logger.info("Table 'processed_updates' created or already exists.")
-        except sqlite3.Error as e:
-            logger.error(f"Error creating 'processed_updates' table: {e}", exc_info=True)
 
     def is_update_processed(self, update_id: int) -> bool:
+        """
+        Checks if an update has been processed.
+
+        Args:
+            update_id (int): The update ID to check.
+
+        Returns:
+            bool: True if the update has been processed, False otherwise.
+        """
+        doc_ref = self.collection_ref.document(str(update_id))
         try:
-            with self._conn:
-                cursor = self._conn.execute("SELECT 1 FROM processed_updates WHERE update_id = ?", (update_id,))
-                return cursor.fetchone() is not None
-        except sqlite3.Error as e:
+            return doc_ref.get().exists
+        except Exception as e:
             logger.error(f"Error checking update_id {update_id}: {e}", exc_info=True)
             # In case of DB error, better to assume not processed to avoid missing a message.
             return False
 
     def mark_update_as_processed(self, update_id: int):
+        """
+        Marks an update as processed.
+
+        Args:
+            update_id (int): The update ID to mark as processed.
+        """
+        doc_ref = self.collection_ref.document(str(update_id))
         try:
             current_timestamp = int(time.time())
-            with self._conn:
-                self._conn.execute(
-                    "INSERT OR IGNORE INTO processed_updates (update_id, timestamp) VALUES (?, ?)",
-                    (update_id, current_timestamp)
-                )
-        except sqlite3.Error as e:
+            doc_ref.set({'timestamp': current_timestamp})
+        except Exception as e:
             logger.error(f"Error marking update_id {update_id} as processed: {e}", exc_info=True)
 
     def cleanup_old_updates(self):
+        """
+        Deletes old update records from Firestore.
+        """
         try:
             cutoff_timestamp = int(time.time()) - self.retention_period_seconds
-            with self._conn:
-                cursor = self._conn.execute("DELETE FROM processed_updates WHERE timestamp < ?", (cutoff_timestamp,))
-                logger.info(f"Cleaned up {cursor.rowcount} old update records.")
-        except sqlite3.Error as e:
+            docs = self.collection_ref.where(filter=FieldFilter('timestamp', '<', cutoff_timestamp)).stream()
+            deleted_count = 0
+            for doc in docs:
+                doc.reference.delete()
+                deleted_count += 1
+            logger.info(f"Cleaned up {deleted_count} old update records.")
+        except Exception as e:
             logger.error(f"Error cleaning up old updates: {e}", exc_info=True)
 
     def close(self):
-        if self._conn:
-            self._conn.close()
-            self._conn = None
-            logger.info("UpdateManager SQLite connection closed.")
+        """
+        Closes the Firestore client.
+        Note: Firestore clients are designed to be long-lived, so this may not be necessary.
+        """
+        pass
