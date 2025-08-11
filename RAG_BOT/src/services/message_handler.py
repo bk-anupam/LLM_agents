@@ -4,13 +4,14 @@ from RAG_BOT.src.logger import logger
 from langchain_core.messages import HumanMessage
 from telebot.types import Message
 from langgraph.graph import StateGraph
-from RAG_BOT.src.utils import parse_json_answer
+from RAG_BOT.src.json_parser import JsonParser
 
 
 class MessageHandler:
-    def __init__(self, agent: StateGraph, config: Config):
+    def __init__(self, agent: StateGraph, config: Config, json_parser: JsonParser):
         self.config = config
         self.agent = agent
+        self.json_parser = json_parser
 
     async def _invoke_agent_and_get_response(self, chat_id: int, language_code: str, mode: str, message: str) -> str:
         """
@@ -29,7 +30,7 @@ class MessageHandler:
             answer = None
             try:
                 last_msg_content = final_state.get("messages", [])[-1].content
-                json_result = parse_json_answer(last_msg_content)
+                json_result = self.json_parser.parse_json_answer(last_msg_content)
                 
                 if json_result and "answer" in json_result:
                     answer = json_result.get("answer")

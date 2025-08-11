@@ -5,6 +5,7 @@ import threading # Added for dedicated event loop
 import os
 from flask import Flask, request, jsonify
 from RAG_BOT.src.config.config import Config
+from RAG_BOT.src.json_parser import JsonParser
 from RAG_BOT.src.logger import logger
 from RAG_BOT.src.persistence.vector_store import VectorStore
 from RAG_BOT.src.agent.graph_builder import build_agent
@@ -73,15 +74,23 @@ class TelegramBotApp:
             self.loop.close()
             logger.info("Asyncio event loop has been closed.")
 
-    async def initialize_agent_and_handler(self, vectordb, config: Config, checkpointer: BaseCheckpointSaver = None):
+
+    async def initialize_agent_and_handler(
+        self,
+        vectordb,
+        config: Config,
+        checkpointer: BaseCheckpointSaver = None,
+        json_parser: JsonParser = None
+    ):
         """Initializes RAG agent and MessageHandler using the app's dedicated event loop."""
         logger.info("Initializing RAG agent and MessageHandler in dedicated loop...")
         # When this coroutine is run via run_coroutine_threadsafe on self.loop,
         # `await build_agent` will execute within self.loop's context.
         self.agent = await build_agent(vectordb=vectordb, config_instance=config, checkpointer=checkpointer)
         # MessageHandler itself is sync
-        self.handler = MessageHandler(agent=self.agent, config=self.config) 
+        self.handler = MessageHandler(agent=self.agent, config=config, json_parser=json_parser) 
         logger.info("RAG agent and MessageHandler initialized successfully using dedicated loop.")
+
 
     def _initialize_telegram_bot(self):
         """Initializes the Telegram bot, webhook, and message handlers."""

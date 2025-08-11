@@ -10,13 +10,15 @@ from RAG_BOT.src.persistence.vector_store import VectorStore
 from RAG_BOT.src.logger import logger
 from RAG_BOT.src.agent.state import AgentState
 from langchain_core.messages import HumanMessage, AIMessage
-from RAG_BOT.src.utils import parse_json_answer
 from RAG_BOT.src.evaluation.hallucination_eval import hallucination_evaluator
 from RAG_BOT.src.evaluation.retrieval_relevance_eval import retrieval_relevance_evaluator
+from RAG_BOT.src.json_parser import JsonParser
+
 
 ls_client = Client()
 dataset_name = "eval_rag_bot_dataset"
 config = Config()
+json_parser = JsonParser()
 
 
 async def get_rag_agent(config: Config = None):        
@@ -63,7 +65,7 @@ def create_eval_fn(agent):
         final_answer_message = final_response['messages'][-1]
         
         if isinstance(final_answer_message, AIMessage):                
-            parsed_json = parse_json_answer(final_answer_message.content)
+            parsed_json = json_parser.parse_json_answer(final_answer_message.content)
             if parsed_json and "answer" in parsed_json:
                 final_answer = parsed_json.get("answer")
             else:

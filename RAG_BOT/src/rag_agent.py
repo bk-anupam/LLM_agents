@@ -7,23 +7,19 @@ from RAG_BOT.src.config.config import Config
 from RAG_BOT.src.logger import logger
 from RAG_BOT.src.agent.state import AgentState
 from RAG_BOT.src.agent.graph_builder import build_agent
-from RAG_BOT.src.utils import parse_json_answer 
 from RAG_BOT.src.persistence.vector_store import VectorStore
-
+from RAG_BOT.src.json_parser import JsonParser
 
 # --- Example Invocation ---
 if __name__ == '__main__':    
     async def run_agent_example():
         try:
-            config = Config()
-            persist_directory = config.VECTOR_STORE_PATH
-            # Instantiate the vector store instance
-            logger.info("Initializing VectorStore...")
-            # Pass the config instance to VectorStore
+            config = Config()                        
+            logger.info("Initializing VectorStore...")            
             vector_store_instance = VectorStore(persist_directory=config.VECTOR_STORE_PATH, config=config)
-            vectordb = vector_store_instance.get_vectordb() # Get the db instance after init
-            logger.info("VectorStore initialized.")
-            # Create rag agent instance
+            vectordb = vector_store_instance.get_vectordb() 
+            json_parser = JsonParser()
+            logger.info("VectorStore initialized.")            
             logger.info("Initializing RAG agent...")
             # Ensure vectordb is valid before passing to agent
             if vectordb is None:
@@ -44,6 +40,7 @@ if __name__ == '__main__':
             # user_question = "त्याग तपस्या और सेवा की परिभाषा के बारे में बाबा ने मुरली में क्या कहा है "
             # user_question = "संगमयुगी ब्राह्मण जीवन में पवित्रता का महत्त्व क्या है?"
             # user_question = "सम्पूर्ण स्टेज वा सम्पूर्ण स्थिति की क्या पहचान बाबा ने मुरलियों में बताई है | सम्पूर्ण स्थिति के समीप हैं वा दूर हैं, ये हम कैसे परख सकते हैं |"
+            # user_question = "बाबा ने मुरली में कहा है कि मोहब्बत में मेहनत नहीं होती और बाबा को बच्चों की मेहनत अच्छी नहीं लगती, इसका क्या अर्थ है?"
             language_code = "hi"
 
             # Initialize state correctly
@@ -84,7 +81,7 @@ if __name__ == '__main__':
                     print("\nFinal Answer Content:")
                     print(final_answer_message.content)
                     # Use the robust parsing function from utils.py
-                    parsed_json = parse_json_answer(final_answer_message.content)
+                    parsed_json = json_parser.parse_json_answer(final_answer_message.content)
                     if parsed_json and "answer" in parsed_json:
                         print("\nParsed JSON Answer:", parsed_json.get("answer"))
                     else:

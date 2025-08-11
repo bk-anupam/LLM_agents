@@ -19,7 +19,7 @@ from RAG_BOT.src.agent.graph_builder import build_agent
 from RAG_BOT.src.agent.state import AgentState
 from RAG_BOT.src.logger import logger
 from RAG_BOT.src.config.config import Config
-from RAG_BOT.src import utils
+from RAG_BOT.src.json_parser import JsonParser
 
 class TestIntegration(unittest.TestCase):
     @classmethod
@@ -44,6 +44,8 @@ class TestIntegration(unittest.TestCase):
         cls.vectordb = cls.test_vector_store.get_vectordb()
         # Build agent once for the class
         cls.agent = build_agent(vectordb=cls.vectordb, config_instance=cls.config)
+        # Instantiate the JsonParser
+        cls.json_parser = JsonParser()
 
 
     @classmethod
@@ -185,7 +187,7 @@ class TestIntegration(unittest.TestCase):
         # Check the final answer format and content
         final_answer_message = messages[-1]
         self.assertEqual(final_answer_message.type, "ai")
-        json_result = utils.parse_json_answer(final_answer_message.content)
+        json_result = self.json_parser.parse_json_answer(final_answer_message.content)
         self.assertIsNotNone(json_result, f"Final answer is not valid JSON: {final_answer_message.content}")
         self.assertIn("answer", json_result)
         # Make comparison case-insensitive and check for substring
@@ -215,7 +217,7 @@ class TestIntegration(unittest.TestCase):
         # Check the final answer format and content
         final_answer_message = messages[-1]
         self.assertEqual(final_answer_message.type, "ai")
-        json_result = utils.parse_json_answer(final_answer_message.content)
+        json_result = self.json_parser.parse_json_answer(final_answer_message.content)
         self.assertIsNotNone(json_result, f"Final answer is not valid JSON: {final_answer_message.content}")
         self.assertIn("answer", json_result)
         # check that cannot find is not in the answer
@@ -250,7 +252,7 @@ class TestIntegration(unittest.TestCase):
         # 3. Check the final answer format and content
         final_answer_message = messages[-1]
         self.assertEqual(final_answer_message.type, "ai")
-        json_result = utils.parse_json_answer(final_answer_message.content)
+        json_result = self.json_parser.parse_json_answer(final_answer_message.content)
         self.assertIsNotNone(json_result, f"Final 'cannot find' answer is not valid JSON: {final_answer_message.content}")
         self.assertIn("answer", json_result)
         self.assertTrue(
@@ -285,7 +287,7 @@ class TestIntegration(unittest.TestCase):
         # Check the final answer format (should be JSON, likely a 'cannot find' message)
         final_answer_message = messages[-1]
         self.assertEqual(final_answer_message.type, "ai")
-        json_result = utils.parse_json_answer(final_answer_message.content)
+        json_result = self.json_parser.parse_json_answer(final_answer_message.content)
         self.assertIsNotNone(json_result, f"Final answer after retry is not valid JSON: {final_answer_message.content}")
         self.assertIn("answer", json_result)
         # Content could be a summary if found after retry, or 'cannot find'
@@ -311,7 +313,7 @@ class TestIntegration(unittest.TestCase):
         # Evaluate the response using the LLM judge
         final_answer_content = final_state["messages"][-1].content
         evaluation_result = self.evaluate_response_with_llm(query, context, final_answer_content, test_config=self.config) 
-        json_result = utils.parse_json_answer(final_answer_content)
+        json_result = self.json_parser.parse_json_answer(final_answer_content)
         response_answer = json_result.get("answer", "")
         self.assertTrue(evaluation_result, f"LLM Judge evaluation failed for query '{query}'. Response: {response_answer}")
 

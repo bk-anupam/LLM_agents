@@ -144,7 +144,7 @@ def filter_to_devanagari_and_essentials(text: str) -> str:
         logger.info(f"Filtered non-Devanagari/non-essential characters. Snippet before: '{text[:100]}', Snippet after: '{filtered_text[:100]}'")
     return filtered_text
 
-def parse_json_answer(content: str) -> Optional[dict]:
+# def parse_json_answer(content: str) -> Optional[dict]:
     """
     Extracts and parses a JSON object embedded within a markdown code block.
     Args:
@@ -284,28 +284,3 @@ def detect_document_language(documents: List[Document], file_name_for_logging: s
     except Exception as e:
         logger.error(f"Error during language detection for '{file_name_for_logging}': {e}", exc_info=True)
         return default_lang
-
-
-# Example usage (can be removed or kept for testing)
-if __name__ == '__main__':
-    test_cases = [
-        '```json\n{\n  "answer": "This is a valid answer."\n}\n```',
-        '```json \n { "answer": " Another valid answer with space. " } \n ```',
-        '```\n{\n  "answer": "No language specified."\n}\n```',
-        '{\n  "answer": "Raw JSON string."\n}',
-        '   {\n  "answer": "Raw JSON with leading/trailing whitespace."\n}   ',
-        '```json\n{\n  "answer": "Invalid JSON structure"\n', # Missing closing brace
-        '```json\n{\n  "answer": "Contains\x00invalid control char."\n}\n```', # Example invalid char
-        'Some text before ```json\n{\n  "answer": "Text around JSON."\n}\n``` and after.',
-        'Plain text response, not JSON.',
-        '```json\n{\n "other_key": "No answer key."\n}\n```',
-        '' # Empty string
-    ]
-
-    print("--- Testing parse_json_answer ---")
-    for i, case in enumerate(test_cases):
-        print(f"\nTest Case {i+1}:")
-        print(f"Input:\n{case}")
-        result = parse_json_answer(case)
-        print(f"Output: {result}")
-        print("-" * 20)
