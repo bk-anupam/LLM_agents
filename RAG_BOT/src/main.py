@@ -1,7 +1,7 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/main.py
 import asyncio
-from langgraph.checkpoint.memory import InMemorySaver
-
+from google.cloud import firestore
+from RAG_BOT.src.persistence.firestore_checkpointer import AsyncFirestoreSaver
 from RAG_BOT.src.config.config import Config
 from RAG_BOT.src.logger import logger
 from RAG_BOT.src.telegram.bot import TelegramBotApp
@@ -10,6 +10,7 @@ from RAG_BOT.src.services.document_indexer import DocumentIndexer
 from RAG_BOT.src.file_manager import FileManager
 from RAG_BOT.src.processing.pdf_processor import PdfProcessor
 from RAG_BOT.src.processing.htm_processor import HtmProcessor
+from RAG_BOT.src.json_parser import JsonParser
 
 def main_setup_and_run():
     """
@@ -19,8 +20,10 @@ def main_setup_and_run():
     """
     try:
         config = Config()
-        checkpointer = InMemorySaver()
-        logger.info("InMemorySaver checkpointer initialized successfully.")
+        # Initialize Firestore client
+        db = firestore.AsyncClient(project=config.GCP_PROJECT_ID, database="rag-bot-firestore-db")
+        checkpointer = AsyncFirestoreSaver(db)
+        logger.info("AsyncFirestoreSaver checkpointer initialized successfully.")
 
         DATA_DIRECTORY = config.DATA_PATH
         logger.info(f"Data directory set to: {DATA_DIRECTORY}")
@@ -59,9 +62,15 @@ def main_setup_and_run():
             htm_processor=htm_processor
         )
 
+        json_parser = JsonParser()        
         # Asynchronously initialize the agent and message handler
         async def _async_init_for_bot_app():
-            await bot_app.initialize_agent_and_handler(vectordb, config, checkpointer=checkpointer)
+            await bot_app.initialize_agent_and_handler(
+                vectordb, 
+                config=config, 
+                checkpointer=checkpointer, 
+                json_parser=json_parser
+            )
 
         logger.info("Submitting async initialization to bot's event loop...")
         future = asyncio.run_coroutine_threadsafe(_async_init_for_bot_app(), bot_app.loop)

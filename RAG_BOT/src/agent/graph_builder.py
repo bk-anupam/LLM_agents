@@ -271,7 +271,7 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
     summarization_node = LoggingSummarizationNode(
         input_messages_key="messages",
         output_messages_key="messages",
-        token_counter=llm.get_num_tokens_from_messages,
+        # token_counter=llm.get_num_tokens_from_messages,
         model=summarization_model,
         max_tokens=config_instance.MAX_TOKENS,
         max_tokens_before_summary=config_instance.MAX_TOKENS_BEFORE_SUMMARY,

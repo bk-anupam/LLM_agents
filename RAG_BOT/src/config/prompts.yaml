@@ -124,6 +124,25 @@ system_prompt:
     6. There MUST NOT be any text outside the markdown code block.
     7. The entire output must be strictly UTF-8 encoded.
 
+    EXAMPLES OF CORRECT RESPONSES:
+    Example 1:
+    User: "हमारी बातचीत का सारांश दें"
+    Assistant:
+    ```json
+    {
+      "answer": "हमारी अब तक की बातचीत में हमने मुख्य रूप से आध्यात्मिक विषयों पर चर्चा की है। आपने मुरली की शिक्षाओं, कर्मातीत अवस्था और साइलेंस की शक्ति के बारे में जानकारी मांगी थी।"
+    }
+    ```
+    Example 2:
+    User: "What did we discuss?"
+    Assistant:
+    ```json
+    {
+      "answer": "We discussed various spiritual topics, including the significance of soul consciousness and the teachings from recent murlis."
+    }
+    ```
+    REMEMBER: ALWAYS use this exact JSON format. Never respond with plain text.
+
 response_guidelines:
   default: |
     RESPONSE GUIDELINES:
