@@ -1,9 +1,11 @@
 # /home/bk_anupam/code/LLM_agents/RAG_BOT/main.py
 import asyncio
 from google.cloud import firestore
-from RAG_BOT.src.persistence.firestore_checkpointer import AsyncFirestoreSaver
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.memory import InMemorySaver
 from RAG_BOT.src.config.config import Config
 from RAG_BOT.src.logger import logger
+from RAG_BOT.src.persistence.firestore_checkpointer import AsyncFirestoreSaver
 from RAG_BOT.src.telegram.bot import TelegramBotApp
 from RAG_BOT.src.persistence.vector_store import VectorStore
 from RAG_BOT.src.services.document_indexer import DocumentIndexer
@@ -11,6 +13,31 @@ from RAG_BOT.src.file_manager import FileManager
 from RAG_BOT.src.processing.pdf_processor import PdfProcessor
 from RAG_BOT.src.processing.htm_processor import HtmProcessor
 from RAG_BOT.src.json_parser import JsonParser
+
+
+def get_checkpointer(config: Config) -> BaseCheckpointSaver:
+    """
+    Factory function to get the appropriate checkpointer based on configuration.
+    """
+    checkpointer_type = config.CHECKPOINTER_TYPE.lower()
+    logger.info(f"Creating checkpointer of type: '{checkpointer_type}'")
+
+    if checkpointer_type == "firestore":
+        try:
+            db = firestore.AsyncClient(project=config.GCP_PROJECT_ID, database="rag-bot-firestore-db")
+            checkpointer = AsyncFirestoreSaver(db)
+            logger.info("AsyncFirestoreSaver checkpointer initialized successfully.")
+            return checkpointer
+        except Exception as e:
+            logger.error(f"Failed to initialize Firestore checkpointer: {e}", exc_info=True)
+            raise
+    elif checkpointer_type == "in_memory":
+        checkpointer = InMemorySaver()
+        logger.info("InMemorySaver checkpointer initialized successfully.")
+        return checkpointer
+    else:
+        raise ValueError(f"Unsupported checkpointer type in config: '{config.CHECKPOINTER_TYPE}'")
+
 
 def main_setup_and_run():
     """
@@ -20,10 +47,8 @@ def main_setup_and_run():
     """
     try:
         config = Config()
-        # Initialize Firestore client
-        db = firestore.AsyncClient(project=config.GCP_PROJECT_ID, database="rag-bot-firestore-db")
-        checkpointer = AsyncFirestoreSaver(db)
-        logger.info("AsyncFirestoreSaver checkpointer initialized successfully.")
+        # Get checkpointer from factory based on config
+        checkpointer = get_checkpointer(config)
 
         DATA_DIRECTORY = config.DATA_PATH
         logger.info(f"Data directory set to: {DATA_DIRECTORY}")

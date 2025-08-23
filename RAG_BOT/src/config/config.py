@@ -123,6 +123,10 @@ class Config:
             'MAX_SUMMARY_TOKENS',
             int(os.environ.get('MAX_SUMMARY_TOKENS', 1000))
         )
+        self.CHECKPOINTER_TYPE = self._get_config_value(
+            'CHECKPOINTER_TYPE', 
+            os.environ.get('CHECKPOINTER_TYPE', 'in_memory')).lower()
+        
 
     def _get_config_value(self, key, default_value):
         """Helper to get value from overrides or use default."""
