@@ -127,6 +127,18 @@ class Config:
             'CHECKPOINTER_TYPE', 
             os.environ.get('CHECKPOINTER_TYPE', 'in_memory')).lower()
         
+        # Persistence settings for thread management
+        self.CONV_PERSISTENCE_BACKEND = self._get_config_value(
+            'CONV_PERSISTENCE_BACKEND',
+            os.environ.get('CONV_PERSISTENCE_BACKEND', 'sqlite')
+        ).lower()
+
+        # Conversation threading settings
+        self.CONVERSATION_SUMMARY_THRESHOLD = self._get_config_value(
+            'CONVERSATION_SUMMARY_THRESHOLD',
+            int(os.environ.get('CONVERSATION_SUMMARY_THRESHOLD', 5))
+        )
+        
 
     def _get_config_value(self, key, default_value):
         """Helper to get value from overrides or use default."""

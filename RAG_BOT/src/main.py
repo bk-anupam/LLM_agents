@@ -13,6 +13,24 @@ from RAG_BOT.src.file_manager import FileManager
 from RAG_BOT.src.processing.pdf_processor import PdfProcessor
 from RAG_BOT.src.processing.htm_processor import HtmProcessor
 from RAG_BOT.src.json_parser import JsonParser
+from RAG_BOT.src.persistence.conversation_interfaces import AbstractThreadManager
+from RAG_BOT.src.persistence.firestore_thread_manager import FirestoreThreadManager
+
+
+def get_thread_manager(config: Config) -> AbstractThreadManager:
+    """
+    Factory function to get the appropriate thread manager based on configuration.
+    """
+    backend = config.CONV_PERSISTENCE_BACKEND.lower()
+    logger.info(f"Creating thread manager with backend: '{backend}'")
+
+    if backend == "firestore":
+        return FirestoreThreadManager(project_id=config.GCP_PROJECT_ID)
+    elif backend == "sqlite":
+        # This part is ready for when we implement SQLiteThreadManager
+        pass
+    else:
+        raise ValueError(f"Unsupported persistence backend in config: '{backend}'")
 
 
 def get_checkpointer(config: Config) -> BaseCheckpointSaver:
@@ -45,10 +63,12 @@ def main_setup_and_run():
     Initializes configuration, services, and the bot application,
     then starts the bot.
     """
+    bot_app = None  
     try:
         config = Config()
-        # Get checkpointer from factory based on config
+        # Get checkpointer and thread manager from factories based on config
         checkpointer = get_checkpointer(config)
+        thread_manager = get_thread_manager(config)
 
         DATA_DIRECTORY = config.DATA_PATH
         logger.info(f"Data directory set to: {DATA_DIRECTORY}")
@@ -84,31 +104,37 @@ def main_setup_and_run():
             config=config,
             vector_store_instance=vector_store_instance,
             pdf_processor=pdf_processor,
-            htm_processor=htm_processor
+            htm_processor=htm_processor,
+            thread_manager=thread_manager
         )
 
-        json_parser = JsonParser()        
-        # Asynchronously initialize the agent and message handler
-        async def _async_init_for_bot_app():
-            await bot_app.initialize_agent_and_handler(
-                vectordb, 
-                config=config, 
-                checkpointer=checkpointer, 
-                json_parser=json_parser
-            )
-
-        logger.info("Submitting async initialization to bot's event loop...")
-        future = asyncio.run_coroutine_threadsafe(_async_init_for_bot_app(), bot_app.loop)
-        
+        json_parser = JsonParser()
+        logger.info("Submitting async initialization to bot's event loop...")        
+        # asyncio.run_coroutine_threadsafe is the bridge between the synchronous main thread and the asynchronous 
+        # event loop running in bot.py background thread. This function is specifically designed to be called from 
+        # a different thread than the one the asyncio event loop is running in.
+        # It takes the async function we want to run (bot_app.initialize_agent_and_handler(...)) and safely submits 
+        # it to the event loop (bot_app.loop) that is running in the background thread.
+        # Crucially, this call is non-blocking. It returns immediately with a concurrent.futures.Future object, 
+        # which is a placeholder for the eventual result of the async function.
+        future = asyncio.run_coroutine_threadsafe(
+            bot_app.initialize_agent_and_handler(vectordb, config=config, checkpointer=checkpointer, json_parser=json_parser),
+            bot_app.loop)
+        # blocks the main thread and waits for the Future object to be populated with a result. 
         future.result(timeout=config.ASYNC_OPERATION_TIMEOUT)
         logger.info("Async initialization of agent and handler complete.")
 
         bot_app.run()
 
+    except KeyboardInterrupt:
+        logger.info("Shutdown signal (KeyboardInterrupt) received. Stopping bot...")
     except Exception as e:
-        logger.critical(f"Failed during application startup: {str(e)}", exc_info=True)
-        # In a real-world scenario, you might want to ensure the bot's event loop is stopped cleanly
-        exit(1)
+        logger.critical(f"An unhandled exception occurred during application lifecycle: {str(e)}", exc_info=True)
+    finally:
+        if bot_app:
+            logger.info("Initiating graceful shutdown...")
+            bot_app.stop()
+        logger.info("Application has been shut down.")
 
 if __name__ == "__main__":
     main_setup_and_run()

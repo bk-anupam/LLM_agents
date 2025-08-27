@@ -211,21 +211,29 @@ class LoggingSummarizationNode(SummarizationNode):
         # Call the parent method to get the standard state update dictionary
         state_update = super()._prepare_state_update(context, summarization_result)
 
-        if summarization_result.running_summary and (
+        # Check if a new summary was generated.
+        # This is true if a new running_summary object exists and its content is different
+        # from the one that was in the context before this step.
+        summary_created = summarization_result.running_summary and (
             not context.get("running_summary")
             or summarization_result.running_summary.summary
             != context["running_summary"].summary
-        ):
+        )
+
+        if summary_created:
             summary_text = summarization_result.running_summary.summary
             num_summarized_ids = len(
                 summarization_result.running_summary.summarized_message_ids
             )
             logger.info(
-                f"Summarization performed. New summary created ({len(summary_text)} chars, summary preview: {summary_text[:200]}...). "
+                f"Summarization performed. New summary created ({len(summary_text)} chars, "
+                f"summary preview: {summary_text[:200]}...). "
                 f"Total messages summarized so far: {num_summarized_ids}."
             )
-            logger.info(f"New summary snippet: {summary_text[:200]}...")
+            state_update['summary_was_triggered'] = True
         else:
             logger.info("No new summary was generated in this step.")
+            # Ensure the flag is set to False if no summary was created
+            state_update['summary_was_triggered'] = False
 
         return state_update

@@ -16,6 +16,7 @@ class UserSettingsManager:
         self.db = firestore.Client(project=project_id, database=db_name)
         self.collection_ref = self.db.collection('user_preferences')
 
+    
     async def get_user_settings(self, user_id: int) -> dict:
         """
         Retrieves settings for a given user.
@@ -43,6 +44,7 @@ class UserSettingsManager:
             # Fallback to in-memory default if DB fails
             return {'language_code': 'en', 'mode': 'default'}
 
+
     async def update_user_settings(self, user_id: int, language_code: str = None, mode: str = None):
         """
         Updates a user's settings in the database.
@@ -69,6 +71,7 @@ class UserSettingsManager:
             logger.error(f"Firestore error updating settings for user {user_id}: {e}", exc_info=True)
             raise
 
+    
     def close_connection(self):
         """
         Closes the Firestore client connection.

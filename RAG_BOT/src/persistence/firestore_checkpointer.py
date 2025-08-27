@@ -22,6 +22,9 @@ from RAG_BOT.src.persistence.firestore_serializer import FirestoreSerializer
 class AsyncFirestoreSaver(BaseCheckpointSaver):
     """An asynchronous checkpoint saver that stores checkpoints in Google Firestore."""
 
+    checkpoints_collection_name: str = "checkpoints"
+    writes_collection_name: str = "writes"
+
     def __init__(
         self,
         db: firestore.AsyncClient,
@@ -31,17 +34,28 @@ class AsyncFirestoreSaver(BaseCheckpointSaver):
         super().__init__(serde=serde)
         self.db = db
         self.firestore_serde = FirestoreSerializer(self.serde)
-        self.checkpoints_collection = self.db.collection("checkpoints")
-        self.writes_collection = self.db.collection("writes")
+        self.checkpoints_collection = self.db.collection(self.checkpoints_collection_name)
+        self.writes_collection = self.db.collection(self.writes_collection_name)
 
     async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
         thread_id = config["configurable"]["thread_id"]
         
         if checkpoint_id := get_checkpoint_id(config):
-            checkpoint_doc_ref = self.checkpoints_collection.document(thread_id).collection("checkpoints").document(checkpoint_id)
+            checkpoint_doc_ref = (
+                self.checkpoints_collection
+                .document(thread_id)
+                .collection(self.checkpoints_collection_name)
+                .document(checkpoint_id)
+            )
             checkpoint_doc = await checkpoint_doc_ref.get()
         else:
-            docs = self.checkpoints_collection.document(thread_id).collection("checkpoints").order_by("ts", direction=firestore.Query.DESCENDING).limit(1).stream()
+            docs = (
+                self.checkpoints_collection
+                .document(thread_id)
+                .collection(self.checkpoints_collection_name)
+                .order_by("ts", direction=firestore.Query.DESCENDING).limit(1)
+                .stream()
+            )
             checkpoint_doc = None
             async for doc in docs:
                 checkpoint_doc = doc
@@ -51,11 +65,15 @@ class AsyncFirestoreSaver(BaseCheckpointSaver):
 
         checkpoint_data = checkpoint_doc.to_dict()
         
-        # Fetch pending writes
-        # writes_query = self.writes_collection.document(thread_id).collection("writes").where("checkpoint_id", "==", checkpoint_doc.id).stream()
-        writes_query = self.writes_collection.document(thread_id).collection("writes").where(filter=FieldFilter("checkpoint_id", "==", checkpoint_doc.id)).stream()
-        pending_writes = [
-            # (write.to_dict()["channel"], self.firestore_serde.loads_typed((write.to_dict()["type"], write.to_dict()["value"])))
+        # Fetch pending writes        
+        writes_query = (
+            self.writes_collection
+            .document(thread_id)
+            .collection(self.writes_collection_name)
+            .where(filter=FieldFilter("checkpoint_id", "==", checkpoint_doc.id))
+            .stream()
+        )
+        pending_writes = [            
             (
                 write.to_dict()["task_id"],
                 write.to_dict()["channel"],
@@ -85,7 +103,12 @@ class AsyncFirestoreSaver(BaseCheckpointSaver):
         limit: int | None = None,
     ) -> AsyncIterator[CheckpointTuple]:
         thread_id = config["configurable"]["thread_id"]
-        query = self.checkpoints_collection.document(thread_id).collection("checkpoints").order_by("ts", direction=firestore.Query.DESCENDING)
+        query = (
+            self.checkpoints_collection
+            .document(thread_id)
+            .collection(self.checkpoints_collection_name)
+            .order_by("ts", direction=firestore.Query.DESCENDING)
+        )
 
         if before:
             query = query.start_after({"ts": get_checkpoint_id(before)})
@@ -94,11 +117,15 @@ class AsyncFirestoreSaver(BaseCheckpointSaver):
             query = query.limit(limit)
             
         async for doc in query.stream():
-            doc_data = doc.to_dict()
-            
-            writes_query = self.writes_collection.document(thread_id).collection("writes").where(filter=FieldFilter("checkpoint_id", "==", doc.id)).stream()
-            pending_writes = [
-                # (write.to_dict()["channel"], self.firestore_serde.loads_typed((write.to_dict()["type"], write.to_dict()["value"])))
+            doc_data = doc.to_dict()            
+            writes_query = (
+                self.writes_collection
+                .document(thread_id)
+                .collection(self.writes_collection_name)
+                .where(filter=FieldFilter("checkpoint_id", "==", doc.id))
+                .stream()
+            )
+            pending_writes = [                
                 (
                     write.to_dict()["task_id"],
                     write.to_dict()["channel"],
@@ -136,7 +163,12 @@ class AsyncFirestoreSaver(BaseCheckpointSaver):
 
         batch = self.db.batch()
         
-        checkpoint_ref = self.checkpoints_collection.document(thread_id).collection("checkpoints").document(checkpoint["id"])
+        checkpoint_ref = (
+            self.checkpoints_collection
+            .document(thread_id)
+            .collection(self.checkpoints_collection_name)
+            .document(checkpoint["id"])
+        )
         batch.set(checkpoint_ref, {
             "ts": checkpoint["ts"],
             "type": type_,
@@ -167,7 +199,12 @@ class AsyncFirestoreSaver(BaseCheckpointSaver):
         batch = self.db.batch()
         for i, (channel, value) in enumerate(writes):
             type_, serialized_value = self.firestore_serde.dumps_typed(value)
-            write_ref = self.writes_collection.document(thread_id).collection("writes").document(f"{checkpoint_id}_{task_id}_{i}")
+            write_ref = (
+                self.writes_collection
+                .document(thread_id)
+                .collection(self.writes_collection_name)
+                .document(f"{checkpoint_id}_{task_id}_{i}")
+            )
             batch.set(write_ref, {
                 "checkpoint_id": checkpoint_id,
                 # added task_id to uniquely identify writes
@@ -179,11 +216,11 @@ class AsyncFirestoreSaver(BaseCheckpointSaver):
         await batch.commit()
 
     async def adelete_thread(self, thread_id: str) -> None:
-        writes_ref = self.writes_collection.document(thread_id).collection("writes")
+        writes_ref = self.writes_collection.document(thread_id).collection(self.writes_collection_name)
         async for doc in writes_ref.stream():
             await doc.reference.delete()
 
-        checkpoints_ref = self.checkpoints_collection.document(thread_id).collection("checkpoints")
+        checkpoints_ref = self.checkpoints_collection.document(thread_id).collection(self.checkpoints_collection_name)
         async for doc in checkpoints_ref.stream():
             await doc.reference.delete()
 

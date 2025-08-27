@@ -29,3 +29,5 @@ class AgentState(TypedDict):
     context: Optional[dict[str, Any]]
     # Router decision: determines whether to use RAG or conversational path
     route_decision: Optional[Literal['RAG_QUERY', 'CONVERSATIONAL_QUERY']]
+    # Flag to indicate that the conversation history was just summarized
+    summary_was_triggered: bool
