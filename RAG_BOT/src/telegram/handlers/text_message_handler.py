@@ -12,6 +12,9 @@ class TextMessageHandler(BaseHandler):
         event loop without blocking the synchronous webhook response. This is
         critical for long-running agent tasks.
         """
+        # The handle method does not wait. It returns control immediately. Your Flask webhook function in bot.py 
+        # then sends a 200 OK response back to Telegram right away. From Telegram's perspective, the transaction 
+        # is complete, and it closes the HTTP connection.
         asyncio.run_coroutine_threadsafe(self._handle_and_reply_async(message), self.loop)
 
 
@@ -27,6 +30,7 @@ class TextMessageHandler(BaseHandler):
                 logger.error(f"MessageProcessor not initialized. Cannot process message for user {user_id}.")
                 response_text = "The bot is currently initializing. Please try again shortly."
             else:
+                # Use asyncio.wait_for to enforce a timeout on the message processing to avoid waiting indefinitely 
                 response_text = await asyncio.wait_for(
                     self._handle_async_core(message),
                     timeout=self.config.ASYNC_OPERATION_TIMEOUT

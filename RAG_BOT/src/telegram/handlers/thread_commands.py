@@ -59,7 +59,7 @@ class ListThreadsCommand(BaseHandler):
                 status = "[ACTIVE]" if thread.is_active else "[Archived]" if thread.is_archived else ""
                 if thread.last_modified_at and isinstance(thread.last_modified_at, datetime.datetime):
                     # Firestore returns UTC-aware datetime objects. We format it and explicitly add the timezone.
-                    last_modified_str = thread.last_modified_at.strftime('%b %d, %H:%M') + " UTC"
+                    last_modified_str = thread.last_modified_at.strftime('%Y-%m-%d %H:%M') + " UTC"
                 else:
                     last_modified_str = "N/A"
 

@@ -68,7 +68,21 @@ class BaseHandler(ABC):
         chunks = [response_text[i:i + max_telegram_length] for i in range(0, len(response_text), max_telegram_length)]
         try:
             if chunks:
-                await self.loop.run_in_executor(None, self.bot.reply_to, message, chunks[0])
+                await (
+                    # the asyncio event loop that is running in your bot's background thread.
+                    self.loop   
+                        # This method tells the event loop: "Don't run this blocking function here. Instead, 
+                        # run it in a separate background thread from a thread pool."
+                        .run_in_executor(
+                            # use the default ThreadPoolExecutor
+                            None, 
+                            # This is the synchronous, blocking function that we want to run in the separate thread.
+                            self.bot.reply_to, 
+                            # arguments to pass to the blocking function (reply_to)
+                            message, 
+                            chunks[0]
+                        )
+                )
                 for chunk in chunks[1:]:
                     await self.loop.run_in_executor(None, self.bot.send_message, message.chat.id, chunk)
         except Exception as e:
