@@ -136,3 +136,13 @@ class FirestoreThreadManager(AbstractThreadManager):
         """Marks a thread as archived by updating its document directly."""
         thread_doc_ref = self.thread_collection.document(thread_id)
         await thread_doc_ref.update({"is_archived": True})
+
+
+    async def update_thread_last_modified(self, thread_id: str) -> None:
+        """Updates the last_modified_at timestamp for a specific thread."""
+        thread_doc_ref = self.thread_collection.document(thread_id)
+        try:
+            await thread_doc_ref.update({"last_modified_at": datetime.now(timezone.utc)})
+            logger.debug(f"Updated last_modified_at for thread {thread_id}")
+        except Exception as e:
+            logger.error(f"Failed to update last_modified_at for thread {thread_id}: {e}", exc_info=True)

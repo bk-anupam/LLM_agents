@@ -6,8 +6,6 @@ from telebot.types import Message
 from langgraph.graph import StateGraph
 from RAG_BOT.src.json_parser import JsonParser
 from RAG_BOT.src.persistence.conversation_interfaces import AbstractThreadManager
-from datetime import datetime, timezone
-
 
 class MessageProcessor:
     """
@@ -83,6 +81,9 @@ class MessageProcessor:
             mode=mode,
             message=message_text
         )
+
+        # After any interaction, update the thread's last modified time.
+        await self.thread_manager.update_thread_last_modified(active_thread_id)
 
         if summary_triggered:
             logger.info(f"Summary was triggered for thread {active_thread_id} for user {user_id}. Checking threshold.")

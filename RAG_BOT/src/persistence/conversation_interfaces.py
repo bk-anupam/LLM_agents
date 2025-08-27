@@ -73,3 +73,10 @@ class AbstractThreadManager(ABC):
         Marks a thread as archived, effectively closing it to new messages.
         """
         pass
+
+    @abstractmethod
+    async def update_thread_last_modified(self, thread_id: str) -> None:
+        """
+        Updates the last_modified_at timestamp for a specific thread to the current time.
+        """
+        pass
