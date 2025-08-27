@@ -1,5 +1,5 @@
 import unittest
-from RAG_BOT.document_processor import DocumentProcessor
+from RAG_BOT.src.processing.document_processor import DocumentProcessor
 from langchain_core.documents import Document
 from datetime import datetime
 

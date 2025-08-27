@@ -11,9 +11,9 @@ project_root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'
 if project_root_path not in sys.path:
     sys.path.insert(0, project_root_path)
 
-from RAG_BOT.vector_store import VectorStore
+from RAG_BOT.src.persistence.vector_store import VectorStore
 # Import DocumentProcessor for mocking
-from RAG_BOT.document_processor import DocumentProcessor
+from RAG_BOT.src.processing.document_processor import DocumentProcessor
 
 
 class TestVectorStore(unittest.TestCase):

@@ -16,13 +16,13 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..
 sys.path.insert(0, project_root)
 
 # Ensure RAG_BOT modules are importable
-from RAG_BOT.config import Config
-from RAG_BOT.logger import logger
-from RAG_BOT.vector_store import VectorStore
-from RAG_BOT.agent.graph_builder import build_agent
-from RAG_BOT.message_handler import MessageHandler
-from RAG_BOT.bot import TelegramBotApp # Import the app class
-from RAG_BOT import utils
+from RAG_BOT.src.config.config import Config
+from RAG_BOT.src.logger import logger
+from RAG_BOT.src.persistence.vector_store import VectorStore
+from RAG_BOT.src.agent.graph_builder import build_agent
+from RAG_BOT.src.services.message_handler import MessageHandler
+from RAG_BOT.src.telegram.bot import TelegramBotApp # Import the app class
+from RAG_BOT.src import utils
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
 
