@@ -83,4 +83,4 @@ COPY --chown=user:user RAG_BOT/ ./RAG_BOT/
  
 # The startup script will download the DB and then execute the CMD
 ENTRYPOINT ["./startup.sh"]
-CMD ["python", "-m", "RAG_BOT.bot"]
+CMD ["python", "-m", "RAG_BOT.src.main"]
