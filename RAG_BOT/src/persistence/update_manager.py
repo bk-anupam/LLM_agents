@@ -1,4 +1,5 @@
 from google.cloud import firestore
+import google.cloud.exceptions
 import time
 from google.cloud.firestore_v1.base_query import FieldFilter
 from RAG_BOT.src.logger import logger
@@ -20,37 +21,34 @@ class UpdateManager:
         self.collection_ref = self.db.collection('processed_updates')
         self.retention_period_seconds = retention_period_seconds
 
-    def is_update_processed(self, update_id: int) -> bool:
+    def check_and_mark_update(self, update_id: int) -> bool:
         """
-        Checks if an update has been processed.
+        Atomically checks if an update has been processed and marks it as processed.
+        This prevents race conditions in concurrent environments.
 
         Args:
-            update_id (int): The update ID to check.
+            update_id (int): The update ID to check and mark.
 
         Returns:
-            bool: True if the update has been processed, False otherwise.
+            bool: True if the update was already processed (it's a duplicate),
+                  False if it was new and has now been marked.
         """
         doc_ref = self.collection_ref.document(str(update_id))
         try:
-            return doc_ref.get().exists
-        except Exception as e:
-            logger.error(f"Error checking update_id {update_id}: {e}", exc_info=True)
-            # In case of DB error, better to assume not processed to avoid missing a message.
-            return False
-
-    def mark_update_as_processed(self, update_id: int):
-        """
-        Marks an update as processed.
-
-        Args:
-            update_id (int): The update ID to mark as processed.
-        """
-        doc_ref = self.collection_ref.document(str(update_id))
-        try:
+            # create() is an atomic operation. It will fail with an AlreadyExists
+            # exception if the document already exists.
             current_timestamp = int(time.time())
-            doc_ref.set({'timestamp': current_timestamp})
+            doc_ref.create({'timestamp': current_timestamp})            
+            logger.info(f"First time seeing update_id {update_id}. Marking as processed.")
+            return False 
+        except google.cloud.exceptions.AlreadyExists:
+            # The document already exists, so this is a duplicate update.            
+            return True 
         except Exception as e:
-            logger.error(f"Error marking update_id {update_id} as processed: {e}", exc_info=True)
+            logger.error(f"Error checking and marking update_id {update_id}: {e}", exc_info=True)
+            # In case of a different DB error, it's safer to assume it was NOT processed
+            # to avoid missing a message. The next attempt might succeed.
+            return False
 
     def cleanup_old_updates(self):
         """

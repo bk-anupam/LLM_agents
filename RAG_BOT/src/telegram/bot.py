@@ -145,15 +145,12 @@ class TelegramBotApp:
                 logger.info("Received webhook request") 
                 try:
                     json_data = request.get_json()
-                    update = Update.de_json(json_data)
-                    
-                    # Idempotency check to prevent processing duplicate updates during cold starts
-                    if self.update_manager.is_update_processed(update.update_id):
+                    update = Update.de_json(json_data)                    
+                    # Atomically check for and mark the update as processed to prevent duplicates.
+                    if self.update_manager.check_and_mark_update(update.update_id):
                         logger.info(f"Duplicate update ID {update.update_id} received, ignoring.")
                         return jsonify({"status": "ok, duplicate"})
-                    
-                    self.update_manager.mark_update_as_processed(update.update_id)
-
+                    # The update is new and has been marked, so we can process it.
                     self.bot.process_new_updates([update])
                     return jsonify({"status": "ok"})
                 except Exception as e:
