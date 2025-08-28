@@ -1,5 +1,5 @@
 from google.cloud import firestore
-import google.cloud.exceptions
+from google.api_core.exceptions import AlreadyExists
 import time
 from google.cloud.firestore_v1.base_query import FieldFilter
 from RAG_BOT.src.logger import logger
@@ -41,7 +41,7 @@ class UpdateManager:
             doc_ref.create({'timestamp': current_timestamp})            
             logger.info(f"First time seeing update_id {update_id}. Marking as processed.")
             return False 
-        except google.cloud.exceptions.AlreadyExists:
+        except AlreadyExists:
             # The document already exists, so this is a duplicate update.            
             return True 
         except Exception as e:
