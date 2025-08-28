@@ -1,17 +1,17 @@
 # GEMINI.md
 
 ## Project Overview
+This project implements a Telegram bot powered by a sophisticated, stateful agent built with Langchain and LangGraph. The agent is designed to answer questions based on a collection of spiritual documents, but it can also handle general conversation, remembering the context of your chat across multiple, distinct conversation threads.
 
-This project is a Telegram bot that uses a sophisticated RAG (Retrieval-Augmented Generation) agent to answer questions on spiritual topics. The agent is built using Langchain and LangGraph, and it leverages Google's Gemini models for its conversational AI.
+The core of the project is a stateful agent that can intelligently route user queries. It can distinguish between general conversation and questions that require knowledge retrieval. For RAG queries, it uses a hybrid search approach (semantic and lexical) on a local knowledge base stored in ChromaDB. If the local search is insufficient, it can fall back to a web search using Tavily. The agent also features a self-correction loop with context evaluation and query reframing.
 
-The core of the project is a stateful agent that can intelligently route user queries. It can distinguish between general conversation and questions that require knowledge retrieval. For RAG queries, it uses a hybrid search approach (semantic and lexical) on a local knowledge base stored in ChromaDB. If the local search is insufficient, it can fall back to a web search using Tavily.
+A key feature is its robust conversational memory and thread management. The agent maintains and summarizes conversation history within distinct, persistent threads stored in a backend like Firestore. Users can create new threads (`/new`), list their recent conversations (`/threads`), and switch between them (`/switch`), allowing for multiple, parallel, stateful conversations.
 
-The project is designed for deployment on Google Cloud Run, and it includes a `Dockerfile` and `cloudbuild.yaml` for automated builds and deployments.
+The project is designed for containerized deployment on Google Cloud Run, and it includes a `Dockerfile` and `cloudbuild.yaml` for automated builds and deployments.
 
 ## Architecture
 
 The following diagram illustrates the high-level architecture of the RAG Bot, from user interaction to the final response generation.
-
 ```mermaid
 graph TD
     %% ----- User & Telegram Interface -----
@@ -143,8 +143,8 @@ graph TD
 
 ### Agent (`RAG_BOT/src/agent/`)
 
-*   **`graph_builder.py`**: Defines the structure and logic of the LangGraph agent, including all the nodes and conditional edges that create the agentic workflow.
-*   **`state.py`**: Defines the `AgentState` TypedDict, which represents the state of the LangGraph agent.
+*   **`graph_builder.py`**: Defines the structure and logic of the LangGraph agent. It wires together all nodes (routing, retrieval, evaluation, generation) and conditional edges. It also integrates a summarization node for managing long conversation histories and is configured with a `checkpointer` (e.g., for Firestore) to persist agent state across runs.
+*   **`state.py`**: Defines the `AgentState` TypedDict, which represents the state of the LangGraph agent. This state is tied to a specific conversation thread and includes the full message history, retrieved context, and other transient information for a single run.
 *   **`agent_node.py`**: Contains the primary logic for the agent, including handling the initial user query and generating the final response.
 *   **`router_node.py`**: Implements the logic to classify a user's query as either a "RAG_QUERY" or a "CONVERSATIONAL_QUERY" to direct the workflow.
 *   **`conversational_node.py`**: Handles queries that are classified as conversational, using the chat history to respond.
@@ -168,7 +168,7 @@ graph TD
 ### Persistence (`RAG_BOT/src/persistence/`)
 
 *   **`vector_store.py`**: Manages the ChromaDB vector store, including initialization, adding documents, and querying the index.
-*   **`user_settings_manager.py`**: Manages user-specific settings (like preferred language) in a SQLite database.
+*   **`user_settings_manager.py`**: Manages user-specific settings (like preferred language) in a persistent backend like SQLite.
 *   **`update_manager.py`**: A utility to prevent processing duplicate Telegram updates by storing and checking update IDs in a SQLite database.
 
 ### Processing (`RAG_BOT/src/processing/`)
@@ -180,11 +180,11 @@ graph TD
 ### Services (`RAG_BOT/src/services/`)
 
 *   **`document_indexer.py`**: Orchestrates the document indexing process, using the file manager and document processors to get documents into the vector store.
-*   **`message_handler.py`**: Contains the core logic for processing incoming messages from the user, invoking the agent, and formatting the final response.
+*   **`message_handler.py`**: Contains the core logic for processing incoming messages. It manages user sessions, determines the correct conversation `thread_id` for stateful interactions, invokes the agent, and formats the final response.
 
 ### Telegram (`RAG_BOT/src/telegram/`)
 
-*   **`bot.py`**: Contains the core logic for the Telegram bot, including the Flask application for the webhook, and all message handlers for commands and document uploads.
+*   **`bot.py`**: Contains the core logic for the Telegram bot, including the Flask application for the webhook. It defines all message handlers for commands (like `/start`, `/language`, and thread management commands `/new`, `/threads`, `/switch`), text messages, and document uploads.
 
 ### Evaluation (`RAG_BOT/src/evaluation/`)
 

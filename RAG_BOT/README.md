@@ -13,7 +13,10 @@ This project implements a Telegram bot powered by a sophisticated, stateful agen
     *   Evaluating the relevance of retrieved context.
     *   Reframing the user's query if the initial context is insufficient.
     *   Generating answers (in a structured JSON format) grounded in the retrieved documents (local or web) using Google's Gemini models.
-*   **Vector Store:** Uses ChromaDB to store and query document embeddings.
+*   **Conversational Memory & Thread Management:**
+    *   The agent maintains and summarizes conversation history within distinct, persistent threads stored in Firestore.
+    *   Users can create new threads (`/new`), list their recent conversations (`/threads`), and switch between them (`/switch`).
+    *   Threads are automatically archived and a new one is created after a configurable number of summarizations to keep conversations focused.
 *   **Document Indexing:**
     *   Upload PDF and HTM documents directly to the Telegram bot for automatic indexing.
     *   Automatic indexing of PDF and HTM documents from a specified data directory on startup.
@@ -27,6 +30,7 @@ This project implements a Telegram bot powered by a sophisticated, stateful agen
 *   **Python:** Core programming language.
 *   **Langchain & LangGraph:** Framework for building the RAG agent and defining the workflow.
 *   **Google Generative AI (Gemini):** LLM used for understanding queries, evaluating context, reframing questions, and generating answers.
+*   **Google Firestore:** Used for persistent storage of conversation threads, user settings, and agent state checkpoints.
 *   **ChromaDB:** Vector database for storing and retrieving document embeddings.
 *   **Sentence Transformers:** (via `langchain-huggingface` and `sentence-transformers`) For generating document embeddings and for reranking (CrossEncoder).
 *   **pyTelegramBotAPI:** Library for interacting with the Telegram Bot API.
@@ -36,7 +40,7 @@ This project implements a Telegram bot powered by a sophisticated, stateful agen
 
 ## How It Works
 
-The agent's intelligence comes from its explicit, graph-based workflow. It maintains an internal **AgentState** that tracks the full conversation history, allowing it to make smart, context-aware decisions.
+The agent's intelligence comes from its explicit, graph-based workflow. It maintains an internal **AgentState** that is tied to a specific conversation **thread_id**. This allows the agent to manage multiple, distinct, stateful conversations for each user. The full history for the active thread is used to make smart, context-aware decisions.
 
 Here's the step-by-step flow:
 
@@ -121,6 +125,14 @@ The following diagram visualizes the agent's workflow :
     # MAX_CHUNKS_FOR_DATE_FILTER=40 # Max chunks to consider for date filtering
     # ASYNC_OPERATION_TIMEOUT=60 # Timeout for async operations in seconds
     # PORT=5000 # Port for Flask app
+
+    # -- Conversation Persistence --
+    # Backend for storing conversation threads ('firestore' or 'sqlite' when implemented)
+    CONV_PERSISTENCE_BACKEND="firestore"
+    # Type of checkpointer for agent state ('firestore' or 'in_memory')
+    CHECKPOINTER_TYPE="firestore"
+    # Number of summarization cycles before a thread is auto-archived
+    CONVERSATION_SUMMARY_THRESHOLD=5
     ```
     *   Replace placeholders with your actual credentials and desired settings.
     *   For local development, ensure the `WEBHOOK_URL` is a publicly accessible HTTPS URL pointing to where your Flask app will run. Tools like `ngrok` can be useful for this. For production on Cloud Run, this will be the URL of your service.
@@ -192,10 +204,14 @@ The deployment is automated using Cloud Build.
     *   Send `/start` to initiate interaction.
     *   Send `/help` to see available commands.
     *   **Set Language:** Use `/language hindi` or `/language english` to set your preferred language for bot responses.
+    *   **Manage Conversations:**
+        *   `/new`: Start a fresh conversation thread. You can optionally provide a title, e.g., `/new My research on consciousness`.
+        *   `/threads`: List your 10 most recent conversation threads.
+        *   `/switch <number>`: Switch to a different conversation from the list provided by `/threads`.
     *   **Upload Documents:** Send PDF or HTM documents directly to the chat to have them indexed. The bot will attempt to detect the document's language and index it.
     *   **Query Documents:**
         *   Send a general message: `What were the main points about soul consciousness on 1969-01-23?` (The agent will attempt retrieval).
-    *   **Conversational Questions:** Ask questions about the chat itself (e.g., "summarize our conversation"). The agent will use its memory to answer.
+    *   **Conversational Questions:** Ask questions about the chat itself (e.g., "summarize our conversation"). The agent will use its memory within the current thread to answer.
 
 ## Running Tests
 
