@@ -7,6 +7,7 @@ import codecs
 from RAG_BOT.src.logger import logger
 from langdetect import detect, LangDetectException, DetectorFactory
 from langchain_core.documents import Document
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from typing import List 
 from datetime import datetime
 
@@ -284,3 +285,30 @@ def detect_document_language(documents: List[Document], file_name_for_logging: s
     except Exception as e:
         logger.error(f"Error during language detection for '{file_name_for_logging}': {e}", exc_info=True)
         return default_lang
+
+
+def get_conversational_history(messages: List[BaseMessage]) -> List[BaseMessage]:
+    """
+    Filters the message history to be more conversational for an LLM.
+
+    This function strips out messages that are not part of the natural
+    human-AI dialogue, such as tool invocation messages and their raw outputs.
+    It keeps HumanMessages and AIMessages that contain a final, readable answer,
+    while filtering out AIMessages that are only for invoking tools.
+
+    Args:
+        messages: The complete list of messages from the agent state.
+
+    Returns:
+        A cleaned list of messages suitable for conversational context.
+    """
+    conversational_messages = []
+    for msg in messages:
+        # Skip tool messages entirely
+        if isinstance(msg, ToolMessage):
+            continue
+        # Skip AIMessages that are only tool calls with no textual content
+        if isinstance(msg, AIMessage) and msg.tool_calls and not msg.content.strip():
+            continue
+        conversational_messages.append(msg)
+    return conversational_messages

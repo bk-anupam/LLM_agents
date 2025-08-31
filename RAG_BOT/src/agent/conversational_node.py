@@ -1,9 +1,10 @@
 from typing import Dict, Any
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
 from RAG_BOT.src.logger import logger
 from RAG_BOT.src.agent.state import AgentState
 from RAG_BOT.src.config.config import Config
+from RAG_BOT.src.utils import get_conversational_history
 
 
 async def conversational_node(state: AgentState, llm: ChatGoogleGenerativeAI) -> Dict[str, Any]:
@@ -37,8 +38,11 @@ async def conversational_node(state: AgentState, llm: ChatGoogleGenerativeAI) ->
     
     try:
         # Create conversational prompt with full history
+        # Filter the history to remove tool calls and tool messages for a cleaner context
+        clean_history = get_conversational_history(messages)
+        logger.info(f"Using cleaned history with {len(clean_history)} messages for conversational response.")
         system_prompt = Config.get_conversational_system_prompt(language_code)
-        conversational_messages = [SystemMessage(content=system_prompt)] + messages        
+        conversational_messages = [SystemMessage(content=system_prompt)] + clean_history        
         # Generate response using full conversation context
         response = await llm.ainvoke(conversational_messages)        
         # Ensure we have an AIMessage response
@@ -47,11 +51,9 @@ async def conversational_node(state: AgentState, llm: ChatGoogleGenerativeAI) ->
             response = AIMessage(
                 content=response_content,
                 response_metadata=getattr(response, 'response_metadata', {})
-            )
-        
+            )        
         logger.info(f"Generated conversational response: {response.content[:100]}...")        
-        return {"messages": [response]}    
-        
+        return {"messages": [response]}            
     except Exception as e:
         logger.error(f"Error in conversational_node: {e}", exc_info=True)        
         # Generate error response in appropriate language
