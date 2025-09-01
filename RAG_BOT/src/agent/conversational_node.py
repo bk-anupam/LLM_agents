@@ -41,8 +41,31 @@ async def conversational_node(state: AgentState, llm: ChatGoogleGenerativeAI) ->
         # Filter the history to remove tool calls and tool messages for a cleaner context
         clean_history = get_conversational_history(messages)
         logger.info(f"Using cleaned history with {len(clean_history)} messages for conversational response.")
+
+        # Pop the last human message to append a more forceful language instruction.
+        # This is crucial when the conversation history (e.g., a summary) is in a different
+        # language, as it helps override the LLM's tendency to follow the history's language.
+        last_human_message = clean_history.pop() if clean_history else None
+
+        # Get the detailed language instruction.
+        lang_instruction = Config.get_final_answer_language_instruction(language_code)
+
+        if isinstance(last_human_message, HumanMessage) and lang_instruction:
+            # This places the instruction at the very end of the prompt, which is highly influential.
+            modified_content = f"{last_human_message.content}\n\n---\n{lang_instruction}"
+            modified_human_message = HumanMessage(content=modified_content)
+            clean_history.append(modified_human_message)
+            logger.info("Appended language instruction to the final user query for conversational node.")
+        elif last_human_message:
+            # If it's not a HumanMessage or no lang_instruction, add it back unmodified.
+            clean_history.append(last_human_message)
+
         system_prompt = Config.get_conversational_system_prompt(language_code)
-        conversational_messages = [SystemMessage(content=system_prompt)] + clean_history        
+        conversational_messages = [SystemMessage(content=system_prompt)] + clean_history 
+        # log the conversational messages for debugging
+        for i, msg in enumerate(conversational_messages):
+            role = "Human" if isinstance(msg, HumanMessage) else "AI" if isinstance(msg, AIMessage) else "System"
+            logger.debug(f"Conversational Message {i} ({role}): {msg.content}")
         # Generate response using full conversation context
         response = await llm.ainvoke(conversational_messages)        
         # Ensure we have an AIMessage response

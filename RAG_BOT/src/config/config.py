@@ -189,9 +189,19 @@ class Config:
     @classmethod
     def get_conversational_system_prompt(self, language_code: str):
         """Gets the conversation system prompt with language instruction."""
-        lang_instruction = self.get_bk_persona_language_instruction(language_code)
+        lang_instruction = self.get_final_answer_language_instruction(language_code)
         base_prompt = self.PROMPTS.get('system_prompt', {}).get('conversation', '')
-        return f"{base_prompt}\n{lang_instruction}".strip() if lang_instruction else base_prompt.strip()
+        
+        insertion_point_str = "IMPORTANT:"
+        insertion_point = base_prompt.find(insertion_point_str)
+        
+        if lang_instruction and insertion_point != -1:
+            # Insert instruction before the JSON format part
+            return f"{base_prompt[:insertion_point]}{lang_instruction}\n{base_prompt[insertion_point:]}".strip()
+        elif lang_instruction:
+            return f"{base_prompt}\n{lang_instruction}".strip()
+        else:
+            return base_prompt.strip()
 
     @classmethod
     def get_question_guidance_prompt(cls):
@@ -224,11 +234,14 @@ class Config:
         insertion_point = base_template.find(insertion_point_str)
         
         if lang_instruction and insertion_point != -1:
-             # Insert instruction before the JSON format part
-             return f"{base_template[:insertion_point]}{lang_instruction}\n{base_template[insertion_point:]}".strip()
+            # Insert instruction before the JSON format part
+            return f"{base_template[:insertion_point]}{lang_instruction}\n{base_template[insertion_point:]}".strip()
+        elif lang_instruction:
+            # Fallback if insertion point not found, append at the end
+            return f"{base_template}\n{lang_instruction}".strip()
         else:
-             # If instruction is empty or insertion point not found, return base
-             return base_template
+            # If instruction is empty, return base
+            return base_template
 
     @classmethod
     def get_final_answer_human_prompt_template(cls):

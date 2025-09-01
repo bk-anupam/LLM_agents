@@ -274,11 +274,13 @@ judge_prompt_template: |
 # Language specific instructions (appended dynamically in code)
 language_instructions:
   bk_persona:
-    en: "" # Empty for English (default)
+    en: |
+      IMPORTANT: Your answer must be ONLY in the English language.
     hi: |
       IMPORTANT: Your answer must be ONLY in the HINDI language.
   final_answer_system:
-    en: "" # Empty for English (default)
+    en: |
+      IMPORTANT: Your answer must be ONLY in the English language.
     hi: |
       IMPORTANT: Your answer must be ONLY in the HINDI language.
       When generating the Hindi answer, use EXCLUSIVELY standard Devanagari Unicode characters.

@@ -12,7 +12,6 @@ from langmem.short_term.summarization import (
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts.chat import ChatPromptTemplate, ChatPromptValue
 from RAG_BOT.src.logger import logger
-from RAG_BOT.src.utils import get_conversational_history
 
 
 def _logged_preprocess_messages(*args, **kwargs):
@@ -113,11 +112,9 @@ def _custom_prepare_summarization_result(
 async def logged_asummarize_messages(*args, **kwargs):
     """
     Wrapper for async summarization that uses the logged preprocessor.
-    This version separates the summarization trigger (based on raw message size)
-    from the summarization content (based on cleaned conversational history).
     """
     try:
-        # --- Step 1: Decide IF summarization is needed based on RAW message size ---
+        # Safe argument extraction
         messages = args[0] if args else kwargs.get("messages")
         running_summary = kwargs.get("running_summary")
         model = kwargs.get("model")
@@ -125,79 +122,47 @@ async def logged_asummarize_messages(*args, **kwargs):
         if messages is None or model is None:
             raise ValueError("`messages` and `model` are required for summarization.")
 
-        # This call uses the original, unfiltered `messages` to accurately check token limits
-        # against the full state size, preventing Firestore document size errors.
-        preprocessed_decision = _logged_preprocess_messages(*args, **kwargs)
+        preprocessed_messages = _logged_preprocess_messages(*args, **kwargs)
 
-        # --- Step 2: If summarization is triggered, prepare CLEAN content for the LLM ---
+        if preprocessed_messages.existing_system_message:
+            messages = messages[1:]
+
+        if not messages:
+            return SummarizationResult(
+                running_summary=running_summary,
+                messages=(
+                    messages
+                    if preprocessed_messages.existing_system_message is None
+                    else [preprocessed_messages.existing_system_message] + messages
+                ),
+            )
+
         existing_summary = running_summary
         summarized_message_ids = (
             set(running_summary.summarized_message_ids) if running_summary else set()
         )
-
-        # This is the main condition. If `messages_to_summarize` is empty, it means the
-        # token threshold was not met, and we can skip the expensive parts.
-        if preprocessed_decision.messages_to_summarize:
-            # Get the clean, conversational-only version of the messages that need summarizing.
-            # This ensures the LLM gets a high-quality, noise-free input.
-            clean_messages_to_summarize = get_conversational_history(
-                preprocessed_decision.messages_to_summarize
+        if preprocessed_messages.messages_to_summarize:
+            summary_messages = _prepare_input_to_summarization_model(
+                preprocessed_messages=preprocessed_messages,
+                running_summary=running_summary,
+                existing_summary_prompt=kwargs.get("existing_summary_prompt"),
+                initial_summary_prompt=kwargs.get("initial_summary_prompt"),
+                token_counter=kwargs.get("token_counter"),
             )
-
-            # If after cleaning there's nothing to summarize (e.g., history was only tool calls),
-            # we can still create a "summary" object to mark the messages as processed,
-            # but we don't need to call the LLM.
-            if clean_messages_to_summarize:
-                # Get necessary values from kwargs for the PreprocessedMessages constructor
-                token_counter = kwargs.get("token_counter")
-                max_summary_tokens = kwargs.get("max_summary_tokens")
-
-                if not token_counter or max_summary_tokens is None:
-                    raise ValueError("`token_counter` and `max_summary_tokens` are required for summarization.")
-
-                # Calculate token count for the cleaned messages
-                n_tokens_in_clean_messages = token_counter(clean_messages_to_summarize)
-
-                # Create a new PreprocessedMessages object based on the clean messages
-                # to pass to the summarization model preparation function.
-                clean_preprocessed = PreprocessedMessages(
-                    existing_system_message=preprocessed_decision.existing_system_message,
-                    messages_to_summarize=clean_messages_to_summarize,
-                    total_summarized_messages=preprocessed_decision.total_summarized_messages,
-                    n_tokens_to_summarize=n_tokens_in_clean_messages,
-                    max_tokens_to_summarize=max_summary_tokens,
-                )
-
-                summary_messages = _prepare_input_to_summarization_model(
-                    preprocessed_messages=clean_preprocessed, # Use the cleaned version
-                    running_summary=running_summary,
-                    existing_summary_prompt=kwargs.get("existing_summary_prompt"),
-                    initial_summary_prompt=kwargs.get("initial_summary_prompt"),
-                    token_counter=kwargs.get("token_counter"),
-                )
-                summary_response = await model.ainvoke(summary_messages)
-                new_summary_content = summary_response.content
-            else:
-                # If cleaning resulted in no messages, we don't call the LLM.
-                # We can use the existing summary content or a placeholder.
-                logger.info("History to be summarized contained only non-conversational messages. Skipping LLM call.")
-                new_summary_content = running_summary.summary if running_summary else "Conversation context cleared."
-
-            # IMPORTANT: We mark the IDs from the *original* raw messages as summarized.
-            # This correctly advances the summarization window over the full, unfiltered history.
-            summarized_message_ids.update(
-                message.id for message in preprocessed_decision.messages_to_summarize
+            summary_response = await model.ainvoke(summary_messages)
+            summarized_message_ids = summarized_message_ids | set(
+                message.id for message in preprocessed_messages.messages_to_summarize
             )
             running_summary = RunningSummary(
-                summary=new_summary_content,
+                summary=summary_response.content,
                 summarized_message_ids=summarized_message_ids,
-                last_summarized_message_id=preprocessed_decision.messages_to_summarize[-1].id,
+                last_summarized_message_id=preprocessed_messages.messages_to_summarize[
+                    -1
+                ].id,
             )
 
-        # --- Step 3: Prepare the final result ---
-        # This function assembles the new message list for the next step in the graph.
         return _custom_prepare_summarization_result(
-            preprocessed_messages=preprocessed_decision, # Use the original decision object
+            preprocessed_messages=preprocessed_messages,
             messages=messages,
             existing_summary=existing_summary,
             running_summary=running_summary,
