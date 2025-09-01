@@ -251,7 +251,7 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
     tool_invoker_node = ToolNode(tools=available_tools) 
 
     # Bind LLM and Reranker to Nodes
-    handle_question_runnable  = functools.partial(handle_question_node, llm_with_tools=llm_with_tools)
+    handle_question_runnable  = functools.partial(handle_question_node, llm_with_tools=llm_with_tools, app_config=config_instance)
     generate_final_response_runnable = functools.partial(generate_final_response, llm=llm)
     router_node_runnable = functools.partial(router_node,llm=llm)
     conversational_node_runnable = functools.partial(conversational_node, llm=llm)

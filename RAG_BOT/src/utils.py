@@ -185,6 +185,27 @@ def detect_document_language(documents: List[Document], file_name_for_logging: s
         return default_lang
 
 
+def detect_text_language(text: str, default_lang: str = 'en') -> str:
+    """
+    Detects the language of the user question using langdetect.
+    Falls back to default_lang if detection fails.
+    """    
+    DetectorFactory.seed = 0  # Set seed for reproducibility
+    try:
+        if not text.strip():
+            logger.warning("Empty text provided for language detection. Defaulting to '%s'.", default_lang)
+            return default_lang
+        detected_lang = detect(text)
+        logger.info(f"Detected language '{detected_lang}' for text.")
+        return detected_lang
+    except LangDetectException as lang_err:
+        logger.warning(f"Could not detect language for text: {lang_err}. Defaulting to '{default_lang}'.")
+        return default_lang
+    except Exception as e:
+        logger.error(f"Error during language detection for user question: {e}", exc_info=True)
+        return default_lang
+
+
 def get_conversational_history(messages: List[BaseMessage]) -> List[BaseMessage]:
     """
     Filters the message history to be more conversational for an LLM.

@@ -137,8 +137,11 @@ class Config:
         self.CONVERSATION_SUMMARY_THRESHOLD = self._get_config_value(
             'CONVERSATION_SUMMARY_THRESHOLD',
             int(os.environ.get('CONVERSATION_SUMMARY_THRESHOLD', 5))
+        )        
+        self.MAX_CONVERSATION_TURNS = self._get_config_value(
+            'MAX_CONVERSATION_TURNS',
+            int(os.environ.get('MAX_CONVERSATION_TURNS', 3))
         )
-        
 
     def _get_config_value(self, key, default_value):
         """Helper to get value from overrides or use default."""

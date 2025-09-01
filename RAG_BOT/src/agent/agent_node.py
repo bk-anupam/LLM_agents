@@ -8,10 +8,12 @@ from langchain_core.messages import (
     AIMessage,
     SystemMessage
 )
+from RAG_BOT.src import utils
 from RAG_BOT.src.config.config import Config
 from RAG_BOT.src.logger import logger
 from RAG_BOT.src.agent.state import AgentState
 from RAG_BOT.src.agent.prompts import get_final_answer_chat_prompt
+
 
 def _generate_formatted_answer(state: AgentState, llm: ChatGoogleGenerativeAI, context_to_use: str) -> Dict[str, Any]:
     """
@@ -89,7 +91,30 @@ def generate_final_response(state: AgentState, llm: ChatGoogleGenerativeAI) -> D
         return _generate_formatted_answer(state, llm, no_context_instruction)
 
 
-async def handle_question_node(state: AgentState, llm_with_tools: ChatGoogleGenerativeAI) -> Dict[str, Any]:
+def _get_conversation_context_messages(messages, app_config: Config):
+    """Extracts the last few turns of conversation for context by including recent 
+    Q&A pairs while filtering out tool calls."""
+    conversation_context_messages = []
+    if len(messages) <= 1:
+        return conversation_context_messages
+    # Filter out the last message(current user query)
+    messages = messages[:-1]
+    # Filter out tool calls and tool messages for cleaner context
+    all_conversation_messages = utils.get_conversational_history(messages)
+    i = len(all_conversation_messages) - 1
+    turns_included = 0
+    while i >= 0 and turns_included < app_config.MAX_CONVERSATION_TURNS:
+        msg = all_conversation_messages[i]
+        # Include human messages and AI responses (but not tool-related ones)
+        if isinstance(msg, (HumanMessage, AIMessage)):
+            conversation_context_messages.insert(0, msg)
+            if isinstance(msg, HumanMessage):
+                turns_included += 1
+        i -= 1
+    return conversation_context_messages
+
+
+async def handle_question_node(state: AgentState, llm_with_tools: ChatGoogleGenerativeAI, app_config: Config) -> Dict[str, Any]:
     """
     Handles the initial user query, decides on the first action (tool call),
     and invokes the LLM with tools. This node is responsible for the initial
@@ -105,18 +130,23 @@ async def handle_question_node(state: AgentState, llm_with_tools: ChatGoogleGene
         logger.error("Handle Question node was called without a HumanMessage as the last message. This is unexpected.")
         # Return a state that does nothing to avoid breaking the graph
         return {}
-
+        
     logger.info(f"Handle Question node received HumanMessage: {last_message.content}")
 
     # Prepare messages for LLM with tools
     system_prompt_msg = SystemMessage(content=Config.get_system_prompt(language_code, mode))
+    # Build conversation context for tool-calling decision    
+    conversation_context_messages = _get_conversation_context_messages(messages, app_config)
+    if conversation_context_messages:
+        # Include recent conversation context for better tool-calling decisions
+        tool_calling_prompt = [system_prompt_msg] + conversation_context_messages + [last_message]
+        logger.info(f"Using conversational context with {len(conversation_context_messages)} previous messages")
+    else:
+        # Fallback to original approach for first message
+        tool_calling_prompt = [system_prompt_msg, last_message]
+        logger.info("No conversational context available, using standalone message")    
 
-    # We pass only the system prompt and the latest human message to ensure the LLM
-    # strictly follows the tool-use rules without being influenced by past turns.
-    # The full history is preserved in the state for the final answer generation step.
-    tool_calling_prompt = [system_prompt_msg, last_message]
-
-    logger.info("Invoking LLM for tool-calling decision with an isolated prompt.")
+    logger.info("Invoking LLM for tool-calling decision ...")
     response = await llm_with_tools.ainvoke(tool_calling_prompt)
     logger.info("LLM invoked for initial decision.")
 
