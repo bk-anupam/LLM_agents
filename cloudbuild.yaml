@@ -89,7 +89,7 @@ steps:
       - '--update-secrets=LANGCHAIN_API_KEY=LANGCHAIN_API_KEY:latest'
 
 # This specifies how long the build can run.
-timeout: '1800s' # 30 minutes
+timeout: '3000s' # 50 minutes
 
 # This tells Cloud Build to substitute these variables at build time.
 # $PROJECT_ID and $COMMIT_SHA are provided automatically by Cloud Build.

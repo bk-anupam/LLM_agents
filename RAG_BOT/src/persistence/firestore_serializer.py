@@ -1,5 +1,6 @@
 import base64
 import gzip
+import gzip
 from langgraph.checkpoint.serde.base import SerializerProtocol
 
 class FirestoreSerializer:
