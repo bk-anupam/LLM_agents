@@ -13,7 +13,7 @@ from RAG_BOT.src.config.config import Config
 from RAG_BOT.src.logger import logger
 from RAG_BOT.src.context_retrieval.context_retriever_tool import create_context_retriever_tool
 from RAG_BOT.src.agent.state import AgentState
-from RAG_BOT.src.agent.agent_node import agent_node
+from RAG_BOT.src.agent.agent_node import handle_question_node, generate_final_response
 from RAG_BOT.src.agent.retrieval_nodes import rerank_context_node
 from RAG_BOT.src import utils # Ensure utils is importable
 from RAG_BOT.src.agent.evaluation_nodes import evaluate_context_node, reframe_query_node
@@ -251,7 +251,8 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
     tool_invoker_node = ToolNode(tools=available_tools) 
 
     # Bind LLM and Reranker to Nodes
-    agent_node_runnable = functools.partial(agent_node, llm=llm, llm_with_tools=llm_with_tools)    
+    handle_question_runnable  = functools.partial(handle_question_node, llm_with_tools=llm_with_tools, app_config=config_instance)
+    generate_final_response_runnable = functools.partial(generate_final_response, llm=llm)
     router_node_runnable = functools.partial(router_node,llm=llm)
     conversational_node_runnable = functools.partial(conversational_node, llm=llm)
     # Bind the loaded reranker model (or None if loading failed)
@@ -286,14 +287,14 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
     builder.add_node("summarize_messages", summarization_node)
     builder.add_node("router", router_node_runnable)
     builder.add_node("conversational_handler", conversational_node_runnable)  
-    builder.add_node("agent_initial", agent_node_runnable)    
+    builder.add_node("agent_initial", handle_question_runnable)    
     builder.add_node("tool_invoker", tool_invoker_node) 
     builder.add_node("force_web_search", force_web_search_node) 
     builder.add_node("process_tool_output", process_tool_output_node) 
     builder.add_node("rerank_context", rerank_context_node_runnable) 
     builder.add_node("evaluate_context", evaluate_context_node_runnable)
     builder.add_node("reframe_query", reframe_query_node_runnable)
-    builder.add_node("agent_final_answer", agent_node_runnable)
+    builder.add_node("agent_final_answer", generate_final_response_runnable)
 
     _define_edges_for_graph(builder)
 

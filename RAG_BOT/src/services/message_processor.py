@@ -6,6 +6,7 @@ from telebot.types import Message
 from langgraph.graph import StateGraph
 from RAG_BOT.src.json_parser import JsonParser
 from RAG_BOT.src.persistence.conversation_interfaces import AbstractThreadManager
+from RAG_BOT.src.utils import detect_text_language
 
 class MessageProcessor:
     """
@@ -68,8 +69,12 @@ class MessageProcessor:
             logger.warning(f"Received empty message text from user {user_id}")
             return "Sorry, I didn't receive any text."
 
-        logger.info(f"Processing message from {user_id}: {message_text[:100]}...")
+        text_language = detect_text_language(message_text, default_lang=language_code)
+        if text_language != language_code:
+            logger.info(f"Detected message language '{text_language}' differs from user setting '{language_code}'. Using detected language.")
+            language_code = text_language
 
+        logger.info(f"Processing message from {user_id}: {message_text[:100]}...")
         active_thread_id = await self.thread_manager.get_active_thread_id(user_id)
         if not active_thread_id:
             logger.error(f"Could not get or create an active thread for user {user_id}")
@@ -81,10 +86,8 @@ class MessageProcessor:
             mode=mode,
             message=message_text
         )
-
         # After any interaction, update the thread's last modified time.
         await self.thread_manager.update_thread_last_modified(active_thread_id)
-
         if summary_triggered:
             logger.info(f"Summary was triggered for thread {active_thread_id} for user {user_id}. Checking threshold.")
             new_count = await self.thread_manager.increment_summary_count(user_id, active_thread_id)

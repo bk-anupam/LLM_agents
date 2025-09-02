@@ -7,6 +7,7 @@ import codecs
 from RAG_BOT.src.logger import logger
 from langdetect import detect, LangDetectException, DetectorFactory
 from langchain_core.documents import Document
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from typing import List 
 from datetime import datetime
 
@@ -144,108 +145,6 @@ def filter_to_devanagari_and_essentials(text: str) -> str:
         logger.info(f"Filtered non-Devanagari/non-essential characters. Snippet before: '{text[:100]}', Snippet after: '{filtered_text[:100]}'")
     return filtered_text
 
-# def parse_json_answer(content: str) -> Optional[dict]:
-    """
-    Extracts and parses a JSON object embedded within a markdown code block.
-    Args:
-        content: The raw string output from the LLM, potentially containing ```json ... ```.
-    Returns:
-        The parsed dictionary if successful, None otherwise.
-    """
-    if not content:
-        logger.warning("Attempted to parse empty LLM output.")
-        return None
-
-    json_str = content.strip()
-
-    # Regex to find content within ```json ... ``` or ``` ... ```, handling potential variations
-    # This pattern accounts for optional whitespace around the JSON content
-    match = re.search(r"```(?:json)?\s*(.*?)\s*```", json_str, re.DOTALL | re.IGNORECASE)
-
-    if match:
-        json_str = match.group(1).strip() # Extract the content and strip whitespace
-        logger.debug("Extracted JSON string from markdown block.")
-    else:
-        # If no markdown block is found, assume the content *might* be raw JSON
-        # We still proceed, but log a warning if it doesn't look like JSON
-        if not json_str.startswith('{') and not json_str.startswith('['):
-             logger.warning("LLM output did not contain a markdown JSON block and doesn't start with { or [. Attempting direct parse anyway.")
-        else:
-             logger.debug("No markdown block found, attempting to parse content directly as JSON.")
-
-    try:
-        # Attempt to parse the extracted (or original) string
-        parsed_json = json.loads(json_str, strict=False)
-
-        if isinstance(parsed_json, dict):
-            # Optionally, validate if the dict has the expected 'answer' key
-            if "answer" in parsed_json: # Check if 'answer' key exists
-                answer_text = parsed_json.get("answer") # Use .get for safety
-                if isinstance(answer_text, str):
-                    # Apply the cleaning function to the extracted answer string
-                    # First, remove invisible control characters
-                    temp_cleaned_answer = remove_control_characters(answer_text)
-                    # Then, filter to keep only Devanagari and essentials
-                    cleaned_answer = filter_to_devanagari_and_essentials(temp_cleaned_answer)
-                    parsed_json["answer"] = cleaned_answer
-                    logger.debug("Successfully parsed JSON, 'answer' key found and content cleaned.")
-                elif answer_text is not None: # If answer is not None but also not a string
-                    logger.warning(f"'answer' key found but content is not a string: {type(answer_text)}. Skipping cleaning.")
-                # If answer_text is None (key exists but value is null), it will be returned as is.
-                return parsed_json # Return the dict with the (potentially cleaned) answer
-            else:
-                # If "answer" key is not present
-                logger.warning("Parsed JSON is a dictionary but does not contain 'answer' key. Returning dict as is.")
-                return parsed_json # Return the dictionary as is, if other keys might be useful.                                   
-        else:
-            logger.warning(f"Parsed JSON is not a dictionary: {type(parsed_json)}. Content: {json_str[:100]}...")
-            return None
-
-    except json.JSONDecodeError as e:
-        # Log the specific error and the problematic string portion
-        error_context_start = max(0, e.pos - 30)
-        error_context_end = min(len(json_str), e.pos + 30)
-        error_snippet = json_str[error_context_start:error_context_end]
-        # Replace newline characters in the snippet for cleaner logging
-        error_snippet_oneline = error_snippet.replace('\n', '\\n')
-        logger.error(f"Failed to parse JSON: {e}. Near char {e.pos}: '{error_snippet_oneline}.\n Full content: {json_str}...'")
-
-        # --- Fallback Regex Recovery ---
-        # If standard parsing fails, it's often due to unescaped quotes in the 'answer' string.
-        # We'll try to extract the 'answer' and 'references' content using regex as a fallback.
-        logger.warning("Attempting to recover content using regex due to JSON parsing error.")
-        try:
-            answer_match = re.search(r'"answer"\s*:\s*"(.*?)",\s*"references"', json_str, re.DOTALL)
-            references_match = re.search(r'"references"\s*:\s*(\[.*?\])', json_str, re.DOTALL)
-
-            if answer_match and references_match:
-                # Manually reconstruct the dictionary
-                # Use codecs.decode to properly un-escape the raw string from the regex capture.
-                # This correctly handles escaped newlines (e.g., '\\n' -> '\n') and
-                # escaped quotes (e.g., '\\"' -> '"').
-                answer_text = codecs.decode(answer_match.group(1), 'unicode_escape')
-
-                recovered_data = {
-                    "answer": answer_text,
-                    "references": json.loads(references_match.group(1)) # Parse references separately
-                }
-                logger.info("Successfully recovered 'answer' and 'references' using regex.")
-                # Re-run the cleaning process on the recovered data
-                cleaned_answer = remove_control_characters(recovered_data["answer"])
-                recovered_data["answer"] = filter_to_devanagari_and_essentials(cleaned_answer)
-                return recovered_data
-            else:
-                logger.error("Regex recovery failed. Could not find 'answer' and 'references' blocks.")
-                return None
-        except (json.JSONDecodeError, AttributeError) as recovery_error:
-            logger.error(f"An error occurred during regex recovery: {recovery_error}")
-            logger.debug(f"Full content that failed parsing and recovery:\n{content}")
-            return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during JSON parsing: {e}", exc_info=True)
-        logger.debug(f"Full content during unexpected error:\n{content}")
-        return None
-
 
 def detect_document_language(documents: List[Document], file_name_for_logging: str = "uploaded document", 
                              default_lang: str = 'en') -> str:
@@ -284,3 +183,51 @@ def detect_document_language(documents: List[Document], file_name_for_logging: s
     except Exception as e:
         logger.error(f"Error during language detection for '{file_name_for_logging}': {e}", exc_info=True)
         return default_lang
+
+
+def detect_text_language(text: str, default_lang: str = 'en') -> str:
+    """
+    Detects the language of the user question using langdetect.
+    Falls back to default_lang if detection fails.
+    """    
+    DetectorFactory.seed = 0  # Set seed for reproducibility
+    try:
+        if not text.strip():
+            logger.warning("Empty text provided for language detection. Defaulting to '%s'.", default_lang)
+            return default_lang
+        detected_lang = detect(text)
+        logger.info(f"Detected language '{detected_lang}' for text.")
+        return detected_lang
+    except LangDetectException as lang_err:
+        logger.warning(f"Could not detect language for text: {lang_err}. Defaulting to '{default_lang}'.")
+        return default_lang
+    except Exception as e:
+        logger.error(f"Error during language detection for user question: {e}", exc_info=True)
+        return default_lang
+
+
+def get_conversational_history(messages: List[BaseMessage]) -> List[BaseMessage]:
+    """
+    Filters the message history to be more conversational for an LLM.
+
+    This function strips out messages that are not part of the natural
+    human-AI dialogue, such as tool invocation messages and their raw outputs.
+    It keeps HumanMessages and AIMessages that contain a final, readable answer,
+    while filtering out AIMessages that are only for invoking tools.
+
+    Args:
+        messages: The complete list of messages from the agent state.
+
+    Returns:
+        A cleaned list of messages suitable for conversational context.
+    """
+    conversational_messages = []
+    for msg in messages:
+        # Skip tool messages entirely
+        if isinstance(msg, ToolMessage):
+            continue
+        # Skip AIMessages that are only tool calls with no textual content
+        if isinstance(msg, AIMessage) and msg.tool_calls and not msg.content.strip():
+            continue
+        conversational_messages.append(msg)
+    return conversational_messages

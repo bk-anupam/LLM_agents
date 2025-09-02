@@ -1,9 +1,10 @@
 from typing import Dict, Any
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
 from RAG_BOT.src.logger import logger
 from RAG_BOT.src.agent.state import AgentState
 from RAG_BOT.src.config.config import Config
+from RAG_BOT.src.utils import get_conversational_history
 
 
 async def conversational_node(state: AgentState, llm: ChatGoogleGenerativeAI) -> Dict[str, Any]:
@@ -37,8 +38,34 @@ async def conversational_node(state: AgentState, llm: ChatGoogleGenerativeAI) ->
     
     try:
         # Create conversational prompt with full history
+        # Filter the history to remove tool calls and tool messages for a cleaner context
+        clean_history = get_conversational_history(messages)
+        logger.info(f"Using cleaned history with {len(clean_history)} messages for conversational response.")
+
+        # Pop the last human message to append a more forceful language instruction.
+        # This is crucial when the conversation history (e.g., a summary) is in a different
+        # language, as it helps override the LLM's tendency to follow the history's language.
+        last_human_message = clean_history.pop() if clean_history else None
+
+        # Get the detailed language instruction.
+        lang_instruction = Config.get_final_answer_language_instruction(language_code)
+
+        if isinstance(last_human_message, HumanMessage) and lang_instruction:
+            # This places the instruction at the very end of the prompt, which is highly influential.
+            modified_content = f"{last_human_message.content}\n\n---\n{lang_instruction}"
+            modified_human_message = HumanMessage(content=modified_content)
+            clean_history.append(modified_human_message)
+            logger.info("Appended language instruction to the final user query for conversational node.")
+        elif last_human_message:
+            # If it's not a HumanMessage or no lang_instruction, add it back unmodified.
+            clean_history.append(last_human_message)
+
         system_prompt = Config.get_conversational_system_prompt(language_code)
-        conversational_messages = [SystemMessage(content=system_prompt)] + messages        
+        conversational_messages = [SystemMessage(content=system_prompt)] + clean_history 
+        # log the conversational messages for debugging
+        for i, msg in enumerate(conversational_messages):
+            role = "Human" if isinstance(msg, HumanMessage) else "AI" if isinstance(msg, AIMessage) else "System"
+            logger.debug(f"Conversational Message {i} ({role}): {msg.content}")
         # Generate response using full conversation context
         response = await llm.ainvoke(conversational_messages)        
         # Ensure we have an AIMessage response
@@ -47,11 +74,9 @@ async def conversational_node(state: AgentState, llm: ChatGoogleGenerativeAI) ->
             response = AIMessage(
                 content=response_content,
                 response_metadata=getattr(response, 'response_metadata', {})
-            )
-        
+            )        
         logger.info(f"Generated conversational response: {response.content[:100]}...")        
-        return {"messages": [response]}    
-        
+        return {"messages": [response]}            
     except Exception as e:
         logger.error(f"Error in conversational_node: {e}", exc_info=True)        
         # Generate error response in appropriate language
