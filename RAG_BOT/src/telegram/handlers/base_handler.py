@@ -84,6 +84,9 @@ class BaseHandler(ABC):
                         )
                 )
                 for chunk in chunks[1:]:
+                    # Add a small, non-blocking delay to prevent rate-limiting issues
+                    # where the remote end closes the connection unexpectedly.
+                    await asyncio.sleep(0.1)
                     await self.loop.run_in_executor(None, self.bot.send_message, message.chat.id, chunk)
         except Exception as e:
             logger.error(f"Unexpected error in send_response_async for user {user_id}: {e}", exc_info=True)

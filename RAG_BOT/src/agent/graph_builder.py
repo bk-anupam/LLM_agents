@@ -43,6 +43,26 @@ def decide_next_step_after_evaluation(state: AgentState) -> Literal["reframe_que
         return "agent_final_answer"
 
 
+def should_invoke_tool_after_web_search_force(state: AgentState) -> Literal["tool_invoker", "agent_final_answer"]:
+    """
+    Checks if force_web_search_node produced a tool call.
+    If yes, invoke the tool.
+    If no (e.g., no date found), go to the final answer node to prevent loops.
+    """
+    logger.info("--- Deciding whether to invoke tool after force_web_search ---")
+    messages = state.get("messages", [])
+    last_message = messages[-1] if messages else None
+
+    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        # Check if the tool call was added by force_web_search
+        if any(tc.get("id") == "tool_call_forced_web_search" for tc in last_message.tool_calls):
+            logger.info("Decision: Tool call found from force_web_search. Invoking tool.")
+            return "tool_invoker"
+
+    logger.info("Decision: No tool call from force_web_search. Proceeding to final answer to prevent loop.")
+    return "agent_final_answer"
+
+
 async def get_mcp_server_tools(config_instance: Config):
     """
     Returns a list of MCP server tools.
@@ -216,7 +236,14 @@ def _define_edges_for_graph(builder: StateGraph):
             "__end__": "agent_final_answer",
         },
     )
-    builder.add_edge("force_web_search", "tool_invoker")
+    builder.add_conditional_edges(
+        "force_web_search",
+        should_invoke_tool_after_web_search_force,
+        {
+            "tool_invoker": "tool_invoker",
+            "agent_final_answer": "agent_final_answer"
+        }
+    )
     builder.add_edge("tool_invoker", "process_tool_output")
     builder.add_conditional_edges(
         "process_tool_output",
