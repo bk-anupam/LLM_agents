@@ -37,6 +37,37 @@ def get_final_answer_chat_prompt(language_code: str, mode: str):
         ("human", human_template),
     ])
 
+def get_initial_summary_prompt():
+    """
+    Returns a ChatPromptTemplate for the initial conversation summary.
+    It includes a placeholder for the token limit.
+    """
+    return ChatPromptTemplate.from_messages([
+        ("placeholder", "{messages}"),
+        ("user", Config.get_initial_summary_prompt_text()),
+    ])
+
+def get_existing_summary_prompt():
+    """
+    The function returns a langchain_core.prompts.ChatPromptTemplate object.
+    This is not just a string. It's a reusable template. When the SummarizationNode in your agent's graph 
+    needs to update a summary, it will invoke this template with the necessary data.
+    For example, the SummarizationNode will provide:
+    - A list of new HumanMessage and AIMessage objects to fill the {messages} placeholder.
+    - The old summary string to fill {existing_summary}.
+    - The token limit from your config to fill {max_summary_tokens}.
+    """
+    return ChatPromptTemplate.from_messages([
+        # This is a special LangChain placeholder. It tells the template: "At runtime, a list of actual message 
+        # objects (the new messages since the last summary) will be inserted here."
+        ("placeholder", "{messages}"),
+        # This creates a HumanMessage (a user-turn message) containing the core instructions for the LLM.
+        # The instruction text includes two template variables:
+        # {existing_summary} - This will be replaced with the current summary of the conversation.
+        # {max_summary_tokens} - This will be replaced with the maximum allowed tokens for the summary
+        ("user", Config.get_existing_summary_prompt_text()),
+    ])
+
 def get_custom_summary_prompt():
     """
     Returns a custom chat prompt template for the summarization node.

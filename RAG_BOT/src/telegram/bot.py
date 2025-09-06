@@ -124,8 +124,16 @@ class TelegramBotApp:
             exit(1)
         try:
             # Create Telegram bot instance
-            self.bot = telebot.TeleBot(self.config.TELEGRAM_BOT_TOKEN)            
-            logger.info("Telegram bot instance created.")
+            self.bot = telebot.TeleBot(self.config.TELEGRAM_BOT_TOKEN)
+            # CRITICAL FIX: Configure session management to prevent stale connections
+            import telebot.apihelper as apihelper            
+            # Force session recreation every 5 minutes (300 seconds) of inactivity
+            # This prevents the "Remote end closed connection" issue
+            apihelper.SESSION_TIME_TO_LIVE = 5 * 60  # 5 minutes            
+            # Set connection timeout and retry configuration
+            apihelper.CONNECT_TIMEOUT = 15  # Connection timeout in seconds
+            apihelper.READ_TIMEOUT = 30     # Read timeout in seconds                                    
+            logger.info("Telegram bot instance created with enhanced session management.")                        
             # Setup webhook route after initializing bot and config
             self._setup_webhook_route()
             self._setup_health_check_route() # Add health check route

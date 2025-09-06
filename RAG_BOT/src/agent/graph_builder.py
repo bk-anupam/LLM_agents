@@ -18,7 +18,7 @@ from RAG_BOT.src.agent.retrieval_nodes import rerank_context_node
 from RAG_BOT.src import utils # Ensure utils is importable
 from RAG_BOT.src.agent.evaluation_nodes import evaluate_context_node, reframe_query_node
 from RAG_BOT.src.agent.process_tool_output_node import process_tool_output_node
-from RAG_BOT.src.agent.prompts import get_custom_summary_prompt
+from RAG_BOT.src.agent.prompts import get_custom_summary_prompt, get_initial_summary_prompt, get_existing_summary_prompt
 from RAG_BOT.src.agent.custom_nodes import LoggingSummarizationNode
 from RAG_BOT.src.agent.router_node import router_node, route_query_decision
 
@@ -293,9 +293,12 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
     evaluate_context_node_runnable = functools.partial(evaluate_context_node, llm=llm)    
     reframe_query_node_runnable = functools.partial(reframe_query_node, llm=llm)
         
-    # Instantiate the summarization node
+    # Instantiate the summarization node. Limit the max output tokens to avoid exceeding MAX_SUMMARY_TOKENS.
     summarization_model = llm.bind(generation_config={"max_output_tokens": config_instance.MAX_SUMMARY_TOKENS})
+    # Get all three required prompts
     custom_summary_prompt = get_custom_summary_prompt()
+    initial_summary_prompt = get_initial_summary_prompt()
+    existing_summary_prompt = get_existing_summary_prompt()
     summarization_node = LoggingSummarizationNode(
         input_messages_key="messages",
         output_messages_key="messages",
@@ -304,6 +307,8 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
         max_tokens=config_instance.MAX_TOKENS,
         max_tokens_before_summary=config_instance.MAX_TOKENS_BEFORE_SUMMARY,
         max_summary_tokens=config_instance.MAX_SUMMARY_TOKENS,
+        initial_summary_prompt=initial_summary_prompt,
+        existing_summary_prompt=existing_summary_prompt,
         final_prompt=custom_summary_prompt
     )
 
