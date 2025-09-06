@@ -18,7 +18,7 @@ from RAG_BOT.src.agent.retrieval_nodes import rerank_context_node
 from RAG_BOT.src import utils # Ensure utils is importable
 from RAG_BOT.src.agent.evaluation_nodes import evaluate_context_node, reframe_query_node
 from RAG_BOT.src.agent.process_tool_output_node import process_tool_output_node
-from RAG_BOT.src.agent.prompts import get_custom_summary_prompt
+from RAG_BOT.src.agent.prompts import get_custom_summary_prompt, get_initial_summary_prompt, get_existing_summary_prompt
 from RAG_BOT.src.agent.custom_nodes import LoggingSummarizationNode
 from RAG_BOT.src.agent.router_node import router_node, route_query_decision
 
@@ -41,6 +41,26 @@ def decide_next_step_after_evaluation(state: AgentState) -> Literal["reframe_que
     else:
         logger.info("Decision: Context insufficient after retry, proceed to 'cannot find' message.")
         return "agent_final_answer"
+
+
+def should_invoke_tool_after_web_search_force(state: AgentState) -> Literal["tool_invoker", "agent_final_answer"]:
+    """
+    Checks if force_web_search_node produced a tool call.
+    If yes, invoke the tool.
+    If no (e.g., no date found), go to the final answer node to prevent loops.
+    """
+    logger.info("--- Deciding whether to invoke tool after force_web_search ---")
+    messages = state.get("messages", [])
+    last_message = messages[-1] if messages else None
+
+    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        # Check if the tool call was added by force_web_search
+        if any(tc.get("id") == "tool_call_forced_web_search" for tc in last_message.tool_calls):
+            logger.info("Decision: Tool call found from force_web_search. Invoking tool.")
+            return "tool_invoker"
+
+    logger.info("Decision: No tool call from force_web_search. Proceeding to final answer to prevent loop.")
+    return "agent_final_answer"
 
 
 async def get_mcp_server_tools(config_instance: Config):
@@ -216,7 +236,14 @@ def _define_edges_for_graph(builder: StateGraph):
             "__end__": "agent_final_answer",
         },
     )
-    builder.add_edge("force_web_search", "tool_invoker")
+    builder.add_conditional_edges(
+        "force_web_search",
+        should_invoke_tool_after_web_search_force,
+        {
+            "tool_invoker": "tool_invoker",
+            "agent_final_answer": "agent_final_answer"
+        }
+    )
     builder.add_edge("tool_invoker", "process_tool_output")
     builder.add_conditional_edges(
         "process_tool_output",
@@ -266,9 +293,12 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
     evaluate_context_node_runnable = functools.partial(evaluate_context_node, llm=llm)    
     reframe_query_node_runnable = functools.partial(reframe_query_node, llm=llm)
         
-    # Instantiate the summarization node
+    # Instantiate the summarization node. Limit the max output tokens to avoid exceeding MAX_SUMMARY_TOKENS.
     summarization_model = llm.bind(generation_config={"max_output_tokens": config_instance.MAX_SUMMARY_TOKENS})
+    # Get all three required prompts
     custom_summary_prompt = get_custom_summary_prompt()
+    initial_summary_prompt = get_initial_summary_prompt()
+    existing_summary_prompt = get_existing_summary_prompt()
     summarization_node = LoggingSummarizationNode(
         input_messages_key="messages",
         output_messages_key="messages",
@@ -277,6 +307,8 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
         max_tokens=config_instance.MAX_TOKENS,
         max_tokens_before_summary=config_instance.MAX_TOKENS_BEFORE_SUMMARY,
         max_summary_tokens=config_instance.MAX_SUMMARY_TOKENS,
+        initial_summary_prompt=initial_summary_prompt,
+        existing_summary_prompt=existing_summary_prompt,
         final_prompt=custom_summary_prompt
     )
 

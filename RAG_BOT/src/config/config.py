@@ -209,6 +209,16 @@ class Config:
         return cls.PROMPTS.get('system_prompt', {}).get('question_guidance', '')
 
     @classmethod
+    def get_initial_summary_prompt_text(cls):
+        """Gets the text for the initial summarization prompt."""
+        return cls.PROMPTS.get('system_prompt', {}).get('summarization_prompts', {}).get('initial', '')
+
+    @classmethod
+    def get_existing_summary_prompt_text(cls):
+        """Gets the text for the existing summarization prompt."""
+        return cls.PROMPTS.get('system_prompt', {}).get('summarization_prompts', {}).get('existing', '')
+
+    @classmethod
     def get_evaluate_context_prompt(cls):
         """Gets the evaluate context prompt."""
         return cls.PROMPTS.get('evaluate_context_prompt', '')

@@ -13,12 +13,13 @@ def _convert_to_documents(
     return [Document(page_content=content, metadata=meta) for content, meta in doc_items if isinstance(content, str)]
 
 
-def _create_default_state() -> Dict[str, Any]:
+def _create_default_state(state: AgentState) -> Dict[str, Any]:
     """Create default updated state structure."""
     return {
         "documents": [],
         "last_retrieval_source": None,
-        "web_search_attempted": False
+        # Preserve the web_search_attempted flag from the current state
+        "web_search_attempted": state.get("web_search_attempted", False)
     }
 
 
@@ -36,8 +37,8 @@ def _validate_tool_message(messages: List[Any]) -> Optional[ToolMessage]:
     return last_message
 
 
-def _process_retrieve_context_success(doc_items_artifact: List[Tuple[str, Dict[str, Any]]]) -> Dict[str, Any]:
-    """Process successful retrieve_context tool output."""
+def _process_retrieve_context_success(doc_items_artifact: List[Tuple[str, Dict[str, Any]]], state: AgentState) -> Dict[str, Any]:
+    """Process successful retrieve_context tool output."""    
     valid_doc_items = [
         item for item in doc_items_artifact
         if isinstance(item, tuple) and len(item) == 2 and 
@@ -46,52 +47,44 @@ def _process_retrieve_context_success(doc_items_artifact: List[Tuple[str, Dict[s
     
     if not valid_doc_items:
         logger.warning("Artifact from retrieve_context contained no valid (content, metadata) items.")
-        return _create_default_state()
+        return {
+            "documents": [],
+            "last_retrieval_source": "local",
+            "web_search_attempted": state.get("web_search_attempted", False),
+        }
     
     # Log invalid items
     invalid_count = len(doc_items_artifact) - len(valid_doc_items)
     if invalid_count > 0:
         logger.warning(f"Skipped {invalid_count} invalid items in artifact from retrieve_context")
     
-    updated_state = _create_default_state()
+    updated_state = _create_default_state(state)
     updated_state.update({
         "documents": _convert_to_documents(valid_doc_items),
-        "last_retrieval_source": "local",
-        "web_search_attempted": False
-    })
-    
+        "last_retrieval_source": "local"
+    })    
     logger.info(f"Processed {len(valid_doc_items)} hybrid local documents retrieved using retrieve_context and updated agent state.")
     return updated_state
 
 
-def _process_retrieve_context_failure(messages: List[Any], current_query: Optional[str]) -> Dict[str, Any]:
+def _process_retrieve_context_failure(messages: List[Any], current_query: Optional[str], state: AgentState) -> Dict[str, Any]:
     """Process failed retrieve_context tool output."""
-    logger.warning("No valid document items were returned by retrieve_context tool.")
-    
-    updated_state = _create_default_state()
+    logger.warning("No valid document items were returned by retrieve_context tool.")    
+    updated_state = _create_default_state(state)
     updated_state.update({
-        "last_retrieval_source": "local",
-        "web_search_attempted": False
-    })
-    
-    if current_query:
-        updated_state["messages"] = messages + [HumanMessage(content=current_query)]
-        logger.info(f"Appended HumanMessage for '{current_query}' for agent_initial re-run after local retrieval failure.")
-    else:
-        logger.warning("current_query not found in state, cannot append HumanMessage for agent_initial re-run.")
-    
+        "last_retrieval_source": "local"
+    })    
     return updated_state
 
 
-def _process_retrieve_context(tool_message: ToolMessage, messages: List[Any], current_query: Optional[str]) -> Dict[str, Any]:
+def _process_retrieve_context(tool_message: ToolMessage, messages: List[Any], current_query: Optional[str], state: AgentState) -> Dict[str, Any]:
     """Process retrieve_context tool output."""
-    logger.info("Processing retrieve_context tool output.")
-    
+    logger.info("Processing retrieve_context tool output.")    
     doc_items_artifact = tool_message.artifact
     if not (doc_items_artifact and isinstance(doc_items_artifact, list)):
-        return _process_retrieve_context_failure(messages, current_query)
+        return _process_retrieve_context_failure(messages, current_query, state)
     
-    return _process_retrieve_context_success(doc_items_artifact)
+    return _process_retrieve_context_success(doc_items_artifact, state)
 
 
 def _extract_tavily_extract_content(tool_content: str) -> Tuple[List[str], List[Dict[str, Any]]]:
@@ -175,14 +168,14 @@ def _extract_tavily_json_content(tool_name: str, tool_content: str) -> Tuple[Lis
     return docs_content, docs_metadata
 
 
-def _process_tavily_tools(tool_name: str, tool_content: str) -> Dict[str, Any]:
+def _process_tavily_tools(tool_name: str, tool_content: str, state: AgentState) -> Dict[str, Any]:
     """Process Tavily web search tool output."""
     if tool_name == "tavily-extract":
         docs_content, docs_metadata = _extract_tavily_extract_content(tool_content)
     else:
         docs_content, docs_metadata = _extract_tavily_json_content(tool_name, tool_content)
     
-    updated_state = _create_default_state()
+    updated_state = _create_default_state(state)
     updated_state.update({
         "last_retrieval_source": "web",
         "web_search_attempted": True
@@ -214,16 +207,16 @@ def process_tool_output_node(state: AgentState) -> Dict[str, Any]:
     # Validate input
     tool_message = _validate_tool_message(messages)
     if not tool_message:
-        return _create_default_state()
+        return _create_default_state(state)
     
     tool_name = tool_message.name
     tool_content = tool_message.content
     
     # Route to appropriate processor
     if tool_name == "retrieve_context":
-        return _process_retrieve_context(tool_message, messages, current_query)
+        return _process_retrieve_context(tool_message, messages, current_query, state)
     elif tool_name and tool_name.startswith("tavily"):
-        return _process_tavily_tools(tool_name, tool_content)
+        return _process_tavily_tools(tool_name, tool_content, state)
     else:
         logger.warning(f"Unknown tool name: {tool_name}")
-        return _create_default_state()
+        return _create_default_state(state)

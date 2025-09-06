@@ -62,6 +62,13 @@ system_prompt:
     Remember: It's better to call the tool unnecessarily than to miss calling it when needed. Your primary goal is accuracy and faithfulness to the actual murli teachings.
   question_guidance: |
     Now answer the following question: \n\n
+  summarization_prompts:
+    initial: |
+      Create a concise summary of the conversation above. The summary MUST be under {max_summary_tokens} tokens.
+    existing: |
+      This is a summary of the conversation so far: {existing_summary}
+
+      Extend this summary by taking into account the new messages above. The new, combined summary MUST be under {max_summary_tokens} tokens.
   router: |
     You are a query classifier for a RAG (Retrieval-Augmented Generation) chatbot system.
     Your task is to classify user queries into one of two categories:

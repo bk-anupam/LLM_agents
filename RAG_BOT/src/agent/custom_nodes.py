@@ -5,7 +5,7 @@ from langmem.short_term.summarization import (
     SummarizationResult,
     RunningSummary,
     PreprocessedMessages,
-    _prepare_input_to_summarization_model,
+    _adjust_messages_before_summarization,
     _preprocess_messages as original_preprocess_messages,
     asummarize_messages as original_asummarize,
 )
@@ -70,7 +70,6 @@ def _custom_prepare_summarization_result(
         total_summarized_messages = preprocessed_messages.total_summarized_messages + len(
             preprocessed_messages.messages_to_summarize
         )
-
         # This logic prevents re-adding a SystemMessage that might contain an old summary,
         # which is relevant when overwriting the main message list.
         include_system_message = preprocessed_messages.existing_system_message and not (
@@ -142,13 +141,36 @@ async def logged_asummarize_messages(*args, **kwargs):
             set(running_summary.summarized_message_ids) if running_summary else set()
         )
         if preprocessed_messages.messages_to_summarize:
-            summary_messages = _prepare_input_to_summarization_model(
-                preprocessed_messages=preprocessed_messages,
-                running_summary=running_summary,
-                existing_summary_prompt=kwargs.get("existing_summary_prompt"),
-                initial_summary_prompt=kwargs.get("initial_summary_prompt"),
-                token_counter=kwargs.get("token_counter"),
+            # --- Custom Logic to Replace _prepare_input_to_summarization_model ---
+            # This is the core change to inject the max_summary_tokens into the prompt.
+            
+            # 1. Get the messages to be summarized, trimmed if necessary.
+            adjusted_messages_to_summarize = _adjust_messages_before_summarization(
+                preprocessed_messages, kwargs.get("token_counter")
             )
+
+            # 2. Select the correct prompt and prepare the input dictionary.
+            if running_summary:
+                prompt = kwargs.get("existing_summary_prompt")
+                prompt_input = {
+                    "messages": adjusted_messages_to_summarize,
+                    "existing_summary": running_summary.summary,
+                    "max_summary_tokens": kwargs.get("max_summary_tokens"),
+                }
+            else:
+                prompt = kwargs.get("initial_summary_prompt")
+                prompt_input = {
+                    "messages": adjusted_messages_to_summarize,
+                    "max_summary_tokens": kwargs.get("max_summary_tokens"),
+                }
+                        
+            # invoke method combines the relevant prompt template (from prompts.py) with data (prompt_input)
+            # It replaces the placeholders (like {existing_summary}) with the actual data. 
+            # The result of .invoke() is a ChatPromptValue object. We access its .messages attribute to get 
+            # the final, clean list of BaseMessage objects that are perfectly formatted to be sent to the LLM.
+            summary_messages = cast(ChatPromptValue, prompt.invoke(prompt_input)).messages
+            # --- End of Custom Logic ---
+
             summary_response = await model.ainvoke(summary_messages)
             summarized_message_ids = summarized_message_ids | set(
                 message.id for message in preprocessed_messages.messages_to_summarize
