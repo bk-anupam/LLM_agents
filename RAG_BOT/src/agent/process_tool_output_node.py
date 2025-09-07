@@ -1,4 +1,5 @@
 import json
+import re
 from langchain_core.messages import ToolMessage, HumanMessage
 from langchain_core.documents import Document
 from typing import Any, Dict, List, Optional, Tuple
@@ -86,15 +87,37 @@ def _process_retrieve_context(tool_message: ToolMessage, messages: List[Any], cu
     
     return _process_retrieve_context_success(doc_items_artifact, state)
 
+def _deduplicate_text(extracted_text: str) -> str:
+    """ Deduplication logic for Murli content Use the specific phrase "प्रात:मुरली"as a delimiter
+    to isolate the unique Murli content, preventing context bloating.    
+    """
+    keyword = "प्रात:मुरली"        
+    # Find all start indices of the keyword
+    indices = [m.start() for m in re.finditer(re.escape(keyword), extracted_text)]        
+    deduplicated_text = extracted_text # Default to original text
+    if len(indices) > 1:
+        # If the keyword is found more than once, the unique content is the slice
+        # from the beginning of the first occurrence to the beginning of the second.
+        start_pos = indices[0]
+        end_pos = indices[1]            
+        # The content often starts with a date on the same line as the keyword.
+        # To include the full line, we find the last newline before the first keyword.
+        line_start_pos = extracted_text.rfind('\n', 0, start_pos)
+        if line_start_pos == -1:
+            line_start_pos = 0 # Keyword is on the very first line        
+        deduplicated_text = extracted_text[line_start_pos:end_pos].strip()
+        logger.info(f"Deduplicated murli content fetched using tavily-extract. "
+                    f"Original length: {len(extracted_text)}, New length: {len(deduplicated_text)}")
+    return deduplicated_text
+
 
 def _extract_tavily_extract_content(tool_content: str) -> Tuple[List[str], List[Dict[str, Any]]]:
     """Extract content from tavily-extract tool output."""
+    
     logger.info("Processing tavily-extract tool output (string parsing for extracted content)")
-    logger.debug(f"Tool content for extraction: {tool_content}")
-    
+    logger.debug(f"Tool content for extraction: {tool_content}")    
     docs_content = []
-    docs_metadata = []
-    
+    docs_metadata = []    
     try:
         # Extract main content
         raw_content_marker = "Raw Content: "
@@ -110,6 +133,7 @@ def _extract_tavily_extract_content(tool_content: str) -> Tuple[List[str], List[
             logger.warning("No extracted text found in tavily-extract output")
             return docs_content, docs_metadata
         
+        deduplicated_text = _deduplicate_text(extracted_text)                
         # Extract URL
         url = ""
         url_marker = "URL: "
@@ -121,9 +145,9 @@ def _extract_tavily_extract_content(tool_content: str) -> Tuple[List[str], List[
                 url_end_idx = len(tool_content)
             url = tool_content[url_text_start:url_end_idx].strip()
         
-        docs_content.append(extracted_text)
+        docs_content.append(deduplicated_text)
         docs_metadata.append({"source": url} if url else {})
-        
+
     except Exception as e:
         logger.error(f"Error processing tavily-extract output: {e}, Content: {tool_content}", exc_info=True)
     
