@@ -193,10 +193,12 @@ class FirestoreThreadManager(AbstractThreadManager):
             # Step 1: Recursively delete all documents in the checkpoints subcollection.
             checkpoints_subcoll_ref = self.client.collection("checkpoints", thread_id, "checkpoints")
             await self._delete_collection_recursively(checkpoints_subcoll_ref)
+            logger.info(f"Deleted all documents from checkpoints collection for thread {thread_id}")
 
             # Step 2: Recursively delete all documents in the writes subcollection.
             writes_subcoll_ref = self.client.collection("writes", thread_id, "writes")
             await self._delete_collection_recursively(writes_subcoll_ref)
+            logger.info(f"Deleted all documents from writes collection for thread {thread_id}")
 
             # Step 3: Atomically delete all parent documents in a single batch.
             batch = self.client.batch()
