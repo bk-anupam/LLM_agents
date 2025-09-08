@@ -14,7 +14,7 @@ from RAG_BOT.src.telegram.handlers.general_commands import StartCommand
 from RAG_BOT.src.telegram.handlers.general_commands import HelpCommand
 from RAG_BOT.src.telegram.handlers.language_command import LanguageCommand
 from RAG_BOT.src.telegram.handlers.mode_command import ModeCommand
-from RAG_BOT.src.telegram.handlers.thread_commands import NewThreadCommand, ListThreadsCommand, SwitchThreadCommand
+from RAG_BOT.src.telegram.handlers.thread_commands import NewThreadCommand, ListThreadsCommand, SwitchThreadCommand, DeleteThreadCommand
 from RAG_BOT.src.telegram.handlers.document_handler import DocumentHandler
 from RAG_BOT.src.telegram.handlers.text_message_handler import TextMessageHandler
 
@@ -60,6 +60,7 @@ class HandlerRegistry:
         self.new_thread_command = NewThreadCommand(**dependencies)
         self.list_threads_command = ListThreadsCommand(**dependencies)
         self.switch_thread_command = SwitchThreadCommand(**dependencies)
+        self.delete_thread_command = DeleteThreadCommand(**dependencies)
         self.document_handler = DocumentHandler(**dependencies)
         self.text_message_handler = TextMessageHandler(**dependencies)
 
@@ -79,6 +80,7 @@ class HandlerRegistry:
         self.bot.register_message_handler(self.new_thread_command.handle, commands=['new'])
         self.bot.register_message_handler(self.list_threads_command.handle, commands=['threads'])
         self.bot.register_message_handler(self.switch_thread_command.handle, commands=['switch'])
+        self.bot.register_message_handler(self.delete_thread_command.handle, commands=['delete'])
 
         # Catch-all handler for text messages
         self.bot.register_message_handler(self.text_message_handler.handle, func=lambda message: True, content_types=['text'])

@@ -25,6 +25,7 @@ class HelpCommand(BaseHandler):
             /new - Start a new conversation thread.
             /threads - List your recent conversations.
             /switch <number> - Switch to a different conversation thread.
+            /delete <number> - Delete a conversation thread.
             You can also just type your question directly.
             """
         )

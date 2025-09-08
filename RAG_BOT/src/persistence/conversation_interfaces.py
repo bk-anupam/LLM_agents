@@ -75,6 +75,11 @@ class AbstractThreadManager(ABC):
         pass
 
     @abstractmethod
+    async def delete_thread(self, user_id: str, thread_id: str) -> bool:
+        """Permanently delete a thread and its associated data."""
+        pass
+
+    @abstractmethod
     async def update_thread_last_modified(self, thread_id: str) -> None:
         """
         Updates the last_modified_at timestamp for a specific thread to the current time.

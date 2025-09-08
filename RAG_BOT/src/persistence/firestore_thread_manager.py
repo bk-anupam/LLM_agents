@@ -146,3 +146,67 @@ class FirestoreThreadManager(AbstractThreadManager):
             logger.debug(f"Updated last_modified_at for thread {thread_id}")
         except Exception as e:
             logger.error(f"Failed to update last_modified_at for thread {thread_id}: {e}", exc_info=True)
+
+
+    async def _delete_collection_recursively(self, coll_ref: firestore.AsyncCollectionReference, batch_size: int = 100):
+        """Helper to recursively delete all documents in a collection."""
+        while True:
+            # Get a batch of documents
+            docs = await coll_ref.limit(batch_size).get()
+            if not docs:
+                break  # No more documents to delete
+
+            batch = self.client.batch()
+            for doc in docs:
+                batch.delete(doc.reference)
+            
+            await batch.commit()
+            collection_path = f"{coll_ref.parent.path}/{coll_ref.id}" if coll_ref.parent else coll_ref.id
+            logger.debug(f"Deleted a batch of {len(docs)} documents from {collection_path}")
+
+
+    async def delete_thread(self, user_id: str, thread_id: str) -> bool:
+        """
+        Permanently deletes a thread document from Firestore and its corresponding
+        conversation history from the checkpoints and writes collections.
+        """
+        logger.info(f"Initiating deletion for thread {thread_id} for user {user_id}")
+        thread_ref = self.thread_collection.document(thread_id)
+
+        try:
+            thread_doc = await thread_ref.get()
+            if not thread_doc.exists:
+                logger.warning(f"Thread {thread_id} not found. Assuming it was already deleted.")
+                return True
+
+            thread_data = thread_doc.to_dict()
+            if thread_data.get("user_id") != str(user_id):
+                logger.error(f"Security: User {user_id} attempted to delete thread {thread_id} owned by another user.")
+                return False
+
+            # Safeguard: check if the thread is active, which should be prevented by the handler.
+            user_doc = await self.user_collection.document(str(user_id)).get()
+            if user_doc.exists and user_doc.to_dict().get("active_thread_id") == thread_id:
+                logger.error(f"Attempted to delete an active thread {thread_id} from the backend. This should be prevented by the handler.")
+                return False
+
+            # Step 1: Recursively delete all documents in the checkpoints subcollection.
+            checkpoints_subcoll_ref = self.client.collection("checkpoints", thread_id, "checkpoints")
+            await self._delete_collection_recursively(checkpoints_subcoll_ref)
+
+            # Step 2: Recursively delete all documents in the writes subcollection.
+            writes_subcoll_ref = self.client.collection("writes", thread_id, "writes")
+            await self._delete_collection_recursively(writes_subcoll_ref)
+
+            # Step 3: Atomically delete all parent documents in a single batch.
+            batch = self.client.batch()
+            batch.delete(self.client.collection("checkpoints").document(thread_id))
+            batch.delete(self.client.collection("writes").document(thread_id))
+            batch.delete(thread_ref) # The main thread metadata document
+            await batch.commit()
+
+            logger.info(f"Successfully deleted thread {thread_id} and all associated data for user {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete thread {thread_id} for user {user_id}: {e}", exc_info=True)
+            return False
