@@ -5,6 +5,7 @@ from RAG_BOT.src.logger import logger
 from RAG_BOT.src.persistence.user_settings_manager import UserSettingsManager
 from RAG_BOT.src.persistence.conversation_interfaces import AbstractThreadManager
 from RAG_BOT.src.services.message_processor import MessageProcessor
+from RAG_BOT.src.services.gcs_uploader import GCSUploaderService
 from RAG_BOT.src.persistence.vector_store import VectorStore
 from RAG_BOT.src.processing.pdf_processor import PdfProcessor
 from RAG_BOT.src.processing.htm_processor import HtmProcessor
@@ -35,9 +36,10 @@ class HandlerRegistry:
         vector_store_instance: VectorStore,
         pdf_processor: PdfProcessor,
         htm_processor: HtmProcessor,
+        gcs_uploader: GCSUploaderService,
         loop: asyncio.AbstractEventLoop,
         project_root_dir: str
-    ):
+    ):        
         # Create a shared dictionary of dependencies to pass to each handler
         dependencies = {
             "bot": bot,
@@ -45,6 +47,7 @@ class HandlerRegistry:
             "user_settings_manager": user_settings_manager,
             "thread_manager": thread_manager,
             "message_processor": message_processor,
+            "gcs_uploader": gcs_uploader,
             "vector_store_instance": vector_store_instance,
             "pdf_processor": pdf_processor,
             "htm_processor": htm_processor,

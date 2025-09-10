@@ -31,3 +31,5 @@ class AgentState(TypedDict):
     route_decision: Optional[Literal['RAG_QUERY', 'CONVERSATIONAL_QUERY']]
     # Flag to indicate that the conversation history was just summarized
     summary_was_triggered: bool
+    # Documents to be indexed after retrieval from web search
+    docs_to_index: Optional[List[Document]]

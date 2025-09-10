@@ -8,6 +8,7 @@ from RAG_BOT.src.logger import logger
 from RAG_BOT.src.persistence.user_settings_manager import UserSettingsManager
 from RAG_BOT.src.persistence.conversation_interfaces import AbstractThreadManager
 from RAG_BOT.src.services.message_processor import MessageProcessor
+from RAG_BOT.src.services.gcs_uploader import GCSUploaderService
 from urllib3.exceptions import ProtocolError
 from requests.exceptions import ConnectionError, Timeout, RequestException
 
@@ -20,6 +21,7 @@ class BaseHandler(ABC):
         user_settings_manager: UserSettingsManager,
         thread_manager: AbstractThreadManager,
         message_processor: MessageProcessor,
+        gcs_uploader: GCSUploaderService,
         loop: asyncio.AbstractEventLoop,
         **kwargs # To catch extra dependencies like processors
     ):
@@ -28,11 +30,11 @@ class BaseHandler(ABC):
         self.user_settings_manager = user_settings_manager
         self.thread_manager = thread_manager
         self.message_processor = message_processor
+        self.gcs_uploader = gcs_uploader
         self.loop = loop
         # Store any other dependencies passed via kwargs
         for key, value in kwargs.items():
             setattr(self, key, value)
-
 
     @abstractmethod
     def handle(self, message: Message):

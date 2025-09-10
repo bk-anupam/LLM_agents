@@ -13,6 +13,8 @@ from langchain_core.messages import HumanMessage, AIMessage
 from RAG_BOT.src.evaluation.hallucination_eval import hallucination_evaluator
 from RAG_BOT.src.evaluation.retrieval_relevance_eval import retrieval_relevance_evaluator
 from RAG_BOT.src.json_parser import JsonParser
+from RAG_BOT.src.services.gcs_uploader import GCSUploaderService
+from RAG_BOT.src.utils import get_checkpointer
 
 
 ls_client = Client()
@@ -23,10 +25,16 @@ json_parser = JsonParser()
 
 async def get_rag_agent(config: Config = None):        
     persist_directory = config.VECTOR_STORE_PATH    
-    vector_store_instance = VectorStore(persist_directory=persist_directory, config=config)
-    vectordb = vector_store_instance.get_vectordb()
-    logger.info("VectorStore initialized.")      
-    agent = await build_agent(vectordb=vectordb, config_instance=config)
+    vector_store_instance = VectorStore(persist_directory=persist_directory, config=config)    
+    logger.info("VectorStore initialized.")
+    gcs_uploader = GCSUploaderService(config)
+    checkpointer = get_checkpointer(config)      
+    agent = await build_agent(
+        vector_store=vector_store_instance, 
+        config_instance=config,
+        gcs_uploader=gcs_uploader,
+        checkpointer=checkpointer
+    )
     logger.info("RAG agent initialized.")            
     return agent
 

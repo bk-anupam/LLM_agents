@@ -1,4 +1,5 @@
 import os
+import asyncio
 from telebot.types import Message
 from RAG_BOT.src.logger import logger
 from RAG_BOT.src.utils import detect_document_language
@@ -24,7 +25,7 @@ class DocumentHandler(BaseHandler):
             file_name = self._determine_file_name(message, file_ext, default_doc_name)
             logger.info(f"User {user_id} uploaded {mime_type} (processed as {processing_mime_type}): {file_name}")
             
-            upload_dir = os.path.join(self.project_root_dir, "uploads")
+            upload_dir = os.path.join(self.config.DATA_PATH, "uploads")
             os.makedirs(upload_dir, exist_ok=True)
             file_path = os.path.join(upload_dir, file_name)
             
@@ -60,6 +61,9 @@ class DocumentHandler(BaseHandler):
             if was_indexed:
                 self.bot.reply_to(message, f"Document '{file_name}' uploaded and indexed successfully.")
                 processed_successfully = True
+                # Trigger GCS sync in the background
+                asyncio.run_coroutine_threadsafe(self.gcs_uploader.sync_vector_store(), self.loop)
+                logger.info(f"Scheduled GCS sync for indexed document: {file_name}")
             else:
                 self.bot.reply_to(message, f"Document '{file_name}' was not indexed (possibly already exists or an error occurred).")
 

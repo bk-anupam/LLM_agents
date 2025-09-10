@@ -142,6 +142,10 @@ class Config:
             'MAX_CONVERSATION_TURNS',
             int(os.environ.get('MAX_CONVERSATION_TURNS', 3))
         )
+        self.GCS_VECTOR_STORE_PATH = self._get_config_value(
+            'GCS_VECTOR_STORE_PATH',
+            os.environ.get('GCS_VECTOR_STORE_PATH')
+        )
 
     def _get_config_value(self, key, default_value):
         """Helper to get value from overrides or use default."""

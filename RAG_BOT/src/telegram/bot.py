@@ -9,6 +9,7 @@ from RAG_BOT.src.json_parser import JsonParser
 from RAG_BOT.src.logger import logger
 from RAG_BOT.src.persistence.vector_store import VectorStore
 from RAG_BOT.src.agent.graph_builder import build_agent
+from RAG_BOT.src.services.gcs_uploader import GCSUploaderService
 from RAG_BOT.src.services.message_processor import MessageProcessor
 from RAG_BOT.src.processing.pdf_processor import PdfProcessor
 from RAG_BOT.src.processing.htm_processor import HtmProcessor 
@@ -30,7 +31,8 @@ class TelegramBotApp:
         vector_store_instance: VectorStore, 
         pdf_processor: PdfProcessor = None, 
         htm_processor: HtmProcessor = None, 
-        thread_manager: AbstractThreadManager = None
+        thread_manager: AbstractThreadManager = None,
+        gcs_uploader: GCSUploaderService = None
     ):
         # Initialize Flask app
         self.app = Flask(__name__)
@@ -47,7 +49,9 @@ class TelegramBotApp:
 
         self.vector_store_instance = vector_store_instance
         self.pdf_processor = pdf_processor or PdfProcessor()
-        self.htm_processor = htm_processor or HtmProcessor()         
+        self.htm_processor = htm_processor or HtmProcessor()  
+        self.gcs_uploader = gcs_uploader or GCSUploaderService(config)
+        
         self._rag_bot_package_dir = os.path.abspath(os.path.dirname(__file__))
         self.project_root_dir = os.path.abspath(os.path.join(self._rag_bot_package_dir, '..'))
         
@@ -82,7 +86,6 @@ class TelegramBotApp:
 
     async def initialize_agent_and_handler(
         self,
-        vectordb,
         config: Config,
         checkpointer: BaseCheckpointSaver = None,
         json_parser: JsonParser = None
@@ -91,7 +94,12 @@ class TelegramBotApp:
         logger.info("Initializing RAG agent and MessageHandler in dedicated loop...")
         # When this coroutine is run via run_coroutine_threadsafe on self.loop,
         # `await build_agent` will execute within self.loop's context.
-        self.agent = await build_agent(vectordb=vectordb, config_instance=config, checkpointer=checkpointer)        
+        self.agent = await build_agent(
+            vector_store=self.vector_store_instance, 
+            config_instance=config, 
+            gcs_uploader=self.gcs_uploader, 
+            checkpointer=checkpointer
+        )
         message_processor = MessageProcessor(
             agent=self.agent, 
             config=config, 
@@ -110,6 +118,7 @@ class TelegramBotApp:
             vector_store_instance=self.vector_store_instance,
             pdf_processor=self.pdf_processor,
             htm_processor=self.htm_processor,
+            gcs_uploader=self.gcs_uploader,
             loop=self.loop,
             project_root_dir=self.project_root_dir
         )
