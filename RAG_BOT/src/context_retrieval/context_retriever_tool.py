@@ -86,70 +86,93 @@ def create_context_retriever_tool(vectordb: Chroma, config: Config) -> Callable:
 
 
     def _handle_topical_query(
-        query: str,
-        search_kwargs: Dict[str, Any],
+            query: str, 
+            search_kwargs: Dict[str, Any]
     ) -> Tuple[str, List[Tuple[str, Dict[str, Any]]]]:
         """Handles retrieval for topical queries using hybrid search and context reconstruction."""
         logger.info("No date filter provided. Proceeding with hybrid search for topical query.")
         
-        # Configuration from config object
+        # Early validation
+        if not query or not query.strip():
+            return "Empty query provided.", []
+        
+        # Process query once upfront
+        semantic_query = query.strip()
+        normalized_query = semantic_query.lower()
+        
+        # Configuration 
         k_semantic = config.INITIAL_RETRIEVAL_K
         k_bm25 = config.BM25_TOP_K
         max_corpus_for_bm25 = config.BM25_MAX_CORPUS_SIZE
         search_type = config.SEARCH_TYPE
         k_fallback = getattr(config, "K_FALLBACK", max(1, min(5, k_semantic // 2 if k_semantic > 1 else 1)))
-
-        semantic_query = query.strip()
-        normalized_query = query.strip().lower()
         
-        # 1. Semantic Search
-        semantic_docs = RetrieverExecutor.execute_with_fallback(
-            vectordb, semantic_query, search_kwargs, k_semantic, k_fallback, search_type, "semantic search"
-        )
-        logger.info(f"Semantic search retrieved {len(semantic_docs)} chunks.")
-        
-        # 2. BM25 Search
-        bm25_results = []
-        if search_kwargs.get("filter"):
-            corpus_items = bm25_processor.get_scoped_corpus(search_kwargs["filter"], max_corpus_for_bm25)
-            if corpus_items:
-                bm25_results = BM25Processor.search(normalized_query, corpus_items, k_bm25)
-                logger.info(f"BM25 search retrieved {len(bm25_results)} chunks.")
-        
-        # 3. Combine and Reconstruct
-        combined_chunks = result_processor.combine_and_deduplicate(semantic_docs, bm25_results)
-        if not combined_chunks:
-            return "No relevant chunks found from hybrid retrieval.", []
-
-        chunk_metadatas = [meta for _, meta in combined_chunks]
-        reconstructed_context = []
-        if config.SENTENCE_WINDOW_RECONSTRUCTION:
-            logger.info("Using sentence window context reconstruction.")
-            reconstructed_context = result_processor.reconstruct_from_sentence_windows(
-                chunk_metadatas, vectordb, config
+        try:
+            # 1. Semantic Search
+            semantic_docs = RetrieverExecutor.execute_with_fallback(
+                vectordb, semantic_query, search_kwargs, k_semantic, k_fallback, search_type, "semantic search"
             )
-        elif config.RECONSTRUCT_MURLIS:
-            logger.info("Using full Murli reconstruction.")
-            reconstructed_context = result_processor.reconstruct_murlis(
-                chunk_metadatas, vectordb, config
-            )
-        else:
-            status_msg = (
-                f"Retrieved {len(semantic_docs)} semantic + {len(bm25_results)} BM25 chunks. "
-                f"Returning {len(combined_chunks)} unique chunks (no reconstruction)."
-            )
+            logger.info(f"Semantic search retrieved {len(semantic_docs)} chunks.")
+            
+            # 2. BM25 Search - streamlined logic
+            bm25_results = []
+            search_filter = search_kwargs.get("filter")
+            if search_filter:
+                corpus_items = bm25_processor.get_scoped_corpus(search_filter, max_corpus_for_bm25)
+                if corpus_items:
+                    bm25_results = BM25Processor.search(normalized_query, corpus_items, k_bm25)
+                    logger.info(f"BM25 search retrieved {len(bm25_results)} chunks.")
+                else:
+                    logger.info("No corpus items found for BM25 search.")
+            else:
+                logger.info("No filter provided for BM25 search, skipping.")
+            
+            # 3. Combine results with early return
+            combined_chunks = result_processor.combine_and_deduplicate(semantic_docs, bm25_results)
+            if not combined_chunks:
+                return "No relevant chunks found from hybrid retrieval.", []
+            
+            # 4. Context reconstruction - cleaner logic
+            final_results = combined_chunks  # Default to combined chunks
+            reconstruction_used = False
+            
+            # Check if any reconstruction is enabled
+            if config.SENTENCE_WINDOW_RECONSTRUCTION or config.RECONSTRUCT_MURLIS:
+                chunk_metadatas = [meta for _, meta in combined_chunks]
+                reconstructed_context = []
+                
+                if config.SENTENCE_WINDOW_RECONSTRUCTION:
+                    logger.info("Using sentence window context reconstruction.")
+                    reconstructed_context = result_processor.reconstruct_from_sentence_windows(
+                        chunk_metadatas, vectordb, config
+                    )
+                elif config.RECONSTRUCT_MURLIS:
+                    logger.info("Using full Murli reconstruction.")
+                    reconstructed_context = result_processor.reconstruct_murlis(
+                        chunk_metadatas, vectordb, config
+                    )
+                
+                # Use reconstructed context if successful
+                if reconstructed_context:
+                    final_results = reconstructed_context
+                    reconstruction_used = True
+                else:
+                    logger.warning("Context reconstruction failed, using combined chunks.")
+            
+            # 5. Build status message - unified logic
+            base_message = f"Retrieved {len(semantic_docs)} semantic + {len(bm25_results)} BM25 chunks."
+            if reconstruction_used:
+                status_msg = f"{base_message} Reconstructed context for {len(final_results)} retrieved chunks."
+            else:
+                status_msg = f"{base_message} Returning {len(final_results)} unique chunks (no reconstruction)."
+            
             logger.info(status_msg)
-            return status_msg, combined_chunks
+            return status_msg, final_results
+            
+        except Exception as e:
+            logger.error(f"Error during topical query processing: {e}", exc_info=True)
+            return f"Search failed: {str(e)}", []
 
-        if not reconstructed_context:
-            return "Failed to reconstruct context from chunks.", []
-
-        status_msg = (
-            f"Retrieved {len(semantic_docs)} semantic + {len(bm25_results)} BM25 chunks. "
-            f"Reconstructed context for {len(reconstructed_context)} retrieved chunks."
-        )
-        logger.info(status_msg)
-        return status_msg, reconstructed_context
 
 
     @tool(response_format="content_and_artifact")
