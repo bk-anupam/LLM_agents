@@ -75,7 +75,7 @@ class Config:
         # Max chunks to fetch for a single Murli
         self.MAX_CHUNKS_PER_MURLI_RECON = self._get_config_value(
             'MAX_CHUNKS_PER_MURLI_RECON', 
-            int(os.environ.get('MAX_CHUNKS_PER_MURLI_RECON', 20))
+            int(os.environ.get('MAX_CHUNKS_PER_MURLI_RECON', 25))
         ) 
 
         # Sentence window reconstruction

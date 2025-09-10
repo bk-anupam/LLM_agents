@@ -1,0 +1,3 @@
+1. Investigate the issue why summary is sometimes set to empty string or truncated
+2. When a murli date is mentioned in query, the context retrieved from chroma should be able to reconstruct the entire murli for that date. This is not happening for murlis fetched via tavily-extract and indexed later.
+3. If a murli date is mentioned in user's question, the LLM should keep the date intact in the question, better still in first retrieval attempt, the question should remain as it is.
