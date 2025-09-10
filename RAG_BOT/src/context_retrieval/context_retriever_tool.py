@@ -200,7 +200,7 @@ def create_context_retriever_tool(vectordb: Chroma, config: Config) -> Callable:
         Returns:            
             A tuple containing:
             1. A status string indicating the outcome.
-            2. A list of (full_murli_content, metadata) tuples for reconstructed Murlis.
+            2. A list of (murli_content, murli_metadata) tuples.
             Returns ("Error retrieving context.", []) if an error occurs.
         """
         logger.info(f"Executing Murli retrieval for query: '{query}', date: {date_filter}, lang: {language}")
