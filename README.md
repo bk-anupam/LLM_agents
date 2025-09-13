@@ -13,9 +13,14 @@ This project implements a Telegram bot powered by a sophisticated, stateful agen
     *   Evaluating the relevance of retrieved context.
     *   Reframing the user's query if the initial context is insufficient.
     *   Generating answers (in a structured JSON format) grounded in the retrieved documents (local or web) using Google's Gemini models.
-*   **Vector Store:** Uses ChromaDB to store and query document embeddings.
+*   **Conversational Memory & Thread Management:**
+    *   The agent maintains and summarizes conversation history within distinct, persistent threads stored in Firestore.
+    *   Users can perform full lifecycle management of their conversations: create new threads (`/new`), list recent ones (`/threads`), switch between them (`/switch`), and permanently delete them (`/delete`).
+    *   Threads are automatically archived and a new one is created after a configurable number of summarizations to keep conversations focused.
 *   **Document Indexing:**
     *   Upload PDF and HTM documents directly to the Telegram bot for automatic indexing.
+    *   Knowledge gained from web searches is automatically indexed, ensuring the agent learns over time.
+    *   The local vector store is periodically synchronized with a Google Cloud Storage bucket for persistence and scalability.
     *   Automatic indexing of PDF and HTM documents from a specified data directory on startup.
     *   Language detection for uploaded documents.
 *   **Conversational Memory:** The agent maintains and summarizes conversation history, allowing it to answer questions about what has been discussed.
@@ -27,16 +32,20 @@ This project implements a Telegram bot powered by a sophisticated, stateful agen
 *   **Python:** Core programming language.
 *   **Langchain & LangGraph:** Framework for building the RAG agent and defining the workflow.
 *   **Google Generative AI (Gemini):** LLM used for understanding queries, evaluating context, reframing questions, and generating answers.
+*   **Google Firestore:** Used for persistent storage of conversation threads, user settings, and agent state checkpoints.
 *   **ChromaDB:** Vector database for storing and retrieving document embeddings.
+*   **Google Cloud Storage:** For persistent, scalable backup of the vector database.
 *   **Sentence Transformers:** (via `langchain-huggingface` and `sentence-transformers`) For generating document embeddings and for reranking (CrossEncoder).
 *   **pyTelegramBotAPI:** Library for interacting with the Telegram Bot API.
 *   **Flask:** Web framework for handling Telegram webhooks.
 *   **Gunicorn:** WSGI HTTP server for running the Flask application.
+*   **Docker:** For containerizing the application, ensuring consistent environments.
+*   **Google Cloud Run:** For scalable, serverless deployment of the containerized application.
 *   **Tavily MCP:** Used for web search capabilities when local retrieval is insufficient.
 
 ## How It Works
 
-The agent's intelligence comes from its explicit, graph-based workflow. It maintains an internal **AgentState** that tracks the full conversation history, allowing it to make smart, context-aware decisions.
+The agent's intelligence comes from its explicit, graph-based workflow. It maintains an internal **AgentState** that is tied to a specific conversation **thread_id**. This allows the agent to manage multiple, distinct, stateful conversations for each user. The full history for the active thread is used to make smart, context-aware decisions.
 
 Here's the step-by-step flow:
 
@@ -46,11 +55,13 @@ Here's the step-by-step flow:
 
 2.  **The RAG Pipeline:**
     *   **Tool Calling:** A specialized node uses a focused, "isolated" prompt to reliably decide which tool to call (e.g., `retrieve_context`).
-    *   **Smart Retrieval (Hybrid Search):** The agent performs a hybrid search, combining **semantic search** (using embeddings in ChromaDB) and **lexical search** (using BM25) on the local knowledge base.
+    *   **Local Retrieval (Hybrid Search):** The agent first attempts to find information by performing a hybrid search (semantic + lexical) on the local knowledge base.
+    *   **Forced Web Fallback:** If the initial local retrieval fails to find any documents (e.g., the requested Murli date is not in the local DB), the agent doesn't give up. It automatically triggers a `force_web_search` node. This node dynamically constructs a URL based on the date and language from the user's query and forces a call to the `tavily-extract` tool to fetch the content directly from an external website.
     *   **Sentence Window Retrieval:** To ensure the LLM receives complete context, the agent doesn't just use the single most relevant chunk. Instead, for each retrieved chunk, it reconstructs a "window" of context by also fetching the chunks immediately before and after it from the original document. This prevents issues where the best matching chunk is only part of a sentence or paragraph, giving the LLM a more coherent and comprehensive view of the information before it's passed on for reranking and final answer generation.
-    *   **Context Reranking:** The initially retrieved documents are reranked using a CrossEncoder model to bring the most relevant passages to the top.
+    *   **Web Content Indexing & DB Sync**: After a web search, any newly retrieved documents are queued for indexing. A dedicated node adds this new knowledge to the local ChromaDB vector store and triggers an asynchronous sync of the entire database to a Google Cloud Storage bucket. This ensures that knowledge gained from web searches is persisted and learned for future queries.
+    *   **Context Reranking:** The retrieved documents (from local or web search) are reranked using a CrossEncoder model to bring the most relevant passages to the top.
     *   **Relevance Evaluation:** The agent evaluates if the reranked context is sufficient to answer the original question.
-    *   **Self-Correction & Web Fallback:** If local context is insufficient, the agent rephrases the query and attempts to retrieve information from the web using **Tavily tools**. This acts as a built-in retry mechanism.
+    *   **Self-Correction (Query Reframing):** If the *evaluated* context is still insufficient, the agent rephrases the query and re-runs the retrieval process. This acts as a built-in retry mechanism to improve understanding.
     *   **Grounded Generation:** Finally, a dedicated node takes the validated context (from local or web) and the full conversation history to generate a high-quality, grounded answer in a structured JSON format.
 
 This explicit, router-based architecture allows the agent to be both a powerful, accurate RAG system and a coherent, stateful conversationalist without compromising on either capability.
@@ -121,6 +132,14 @@ The following diagram visualizes the agent's workflow :
     # MAX_CHUNKS_FOR_DATE_FILTER=40 # Max chunks to consider for date filtering
     # ASYNC_OPERATION_TIMEOUT=60 # Timeout for async operations in seconds
     # PORT=5000 # Port for Flask app
+
+    # -- Conversation Persistence --
+    # Backend for storing conversation threads ('firestore' or 'sqlite' when implemented)
+    CONV_PERSISTENCE_BACKEND="firestore"
+    # Type of checkpointer for agent state ('firestore' or 'in_memory')
+    CHECKPOINTER_TYPE="firestore"
+    # Number of summarization cycles before a thread is auto-archived
+    CONVERSATION_SUMMARY_THRESHOLD=5
     ```
     *   Replace placeholders with your actual credentials and desired settings.
     *   For local development, ensure the `WEBHOOK_URL` is a publicly accessible HTTPS URL pointing to where your Flask app will run. Tools like `ngrok` can be useful for this. For production on Cloud Run, this will be the URL of your service.
@@ -192,10 +211,15 @@ The deployment is automated using Cloud Build.
     *   Send `/start` to initiate interaction.
     *   Send `/help` to see available commands.
     *   **Set Language:** Use `/language hindi` or `/language english` to set your preferred language for bot responses.
+    *   **Manage Conversations:**
+        *   `/new`: Start a fresh conversation thread. You can optionally provide a title, e.g., `/new My research on consciousness`.
+        *   `/threads`: List your 10 most recent conversation threads.
+        *   `/switch <number>`: Switch to a different conversation from the list provided by `/threads`.
+        *   `/delete <number>`: Permanently delete a non-active conversation from the list.
     *   **Upload Documents:** Send PDF or HTM documents directly to the chat to have them indexed. The bot will attempt to detect the document's language and index it.
     *   **Query Documents:**
         *   Send a general message: `What were the main points about soul consciousness on 1969-01-23?` (The agent will attempt retrieval).
-    *   **Conversational Questions:** Ask questions about the chat itself (e.g., "summarize our conversation"). The agent will use its memory to answer.
+    *   **Conversational Questions:** Ask questions about the chat itself (e.g., "summarize our conversation"). The agent will use its memory within the current thread to answer.
 
 ## Running Tests
 
