@@ -94,4 +94,5 @@ def reframe_query_node(state: AgentState, llm: ChatGoogleGenerativeAI):
         # Reset flags for the new reframed query attempt
         "web_search_attempted": False,
         "last_retrieval_source": None,
+        "docs_to_index": [] 
     }

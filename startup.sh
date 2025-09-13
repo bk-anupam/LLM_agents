@@ -2,6 +2,18 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
+# Function to run on exit
+cleanup() {
+    echo "SIGTERM received, running final GCS sync..."
+    # Ensure PYTHONPATH is set up correctly if your modules are in a src directory
+    export PYTHONPATH=/home/user/app/RAG_BOT/src
+    python -m RAG_BOT.src.services.gcs_uploader --final-sync
+    echo "Final sync complete."
+}
+
+# Trap SIGTERM and run the cleanup function
+trap cleanup TERM
+
 # The local path inside the container where the vector store will be copied to.
 LOCAL_VECTOR_STORE_PATH="/home/user/app/RAG_BOT/chroma_db"
 
@@ -32,4 +44,12 @@ fi
 export VECTOR_STORE_PATH="$LOCAL_VECTOR_STORE_PATH"
 
 # Execute the command passed to this script (from the Dockerfile's CMD).
-exec "$@"
+# The `&` runs the command in the background (in a child process), and `wait` waits for it.
+# This is crucial for the trap to work correctly.
+exec "$@" &
+
+# Wait for the process to exit. $! holds the PID of the last background command.
+# The wait command pauses the script's execution until the process with that specific PID has finished.
+# When Cloud Run needs to terminate a container instance, it sends a SIGTERM signal to the main process.
+# which is the startup shell script in this case. The trap will catch this signal and run the cleanup function.
+wait $!

@@ -5,6 +5,7 @@ from RAG_BOT.src.logger import logger
 from RAG_BOT.src.persistence.user_settings_manager import UserSettingsManager
 from RAG_BOT.src.persistence.conversation_interfaces import AbstractThreadManager
 from RAG_BOT.src.services.message_processor import MessageProcessor
+from RAG_BOT.src.services.gcs_uploader import GCSUploaderService
 from RAG_BOT.src.persistence.vector_store import VectorStore
 from RAG_BOT.src.processing.pdf_processor import PdfProcessor
 from RAG_BOT.src.processing.htm_processor import HtmProcessor
@@ -14,7 +15,7 @@ from RAG_BOT.src.telegram.handlers.general_commands import StartCommand
 from RAG_BOT.src.telegram.handlers.general_commands import HelpCommand
 from RAG_BOT.src.telegram.handlers.language_command import LanguageCommand
 from RAG_BOT.src.telegram.handlers.mode_command import ModeCommand
-from RAG_BOT.src.telegram.handlers.thread_commands import NewThreadCommand, ListThreadsCommand, SwitchThreadCommand
+from RAG_BOT.src.telegram.handlers.thread_commands import NewThreadCommand, ListThreadsCommand, SwitchThreadCommand, DeleteThreadCommand
 from RAG_BOT.src.telegram.handlers.document_handler import DocumentHandler
 from RAG_BOT.src.telegram.handlers.text_message_handler import TextMessageHandler
 
@@ -35,9 +36,10 @@ class HandlerRegistry:
         vector_store_instance: VectorStore,
         pdf_processor: PdfProcessor,
         htm_processor: HtmProcessor,
+        gcs_uploader: GCSUploaderService,
         loop: asyncio.AbstractEventLoop,
         project_root_dir: str
-    ):
+    ):        
         # Create a shared dictionary of dependencies to pass to each handler
         dependencies = {
             "bot": bot,
@@ -45,6 +47,7 @@ class HandlerRegistry:
             "user_settings_manager": user_settings_manager,
             "thread_manager": thread_manager,
             "message_processor": message_processor,
+            "gcs_uploader": gcs_uploader,
             "vector_store_instance": vector_store_instance,
             "pdf_processor": pdf_processor,
             "htm_processor": htm_processor,
@@ -60,6 +63,7 @@ class HandlerRegistry:
         self.new_thread_command = NewThreadCommand(**dependencies)
         self.list_threads_command = ListThreadsCommand(**dependencies)
         self.switch_thread_command = SwitchThreadCommand(**dependencies)
+        self.delete_thread_command = DeleteThreadCommand(**dependencies)
         self.document_handler = DocumentHandler(**dependencies)
         self.text_message_handler = TextMessageHandler(**dependencies)
 
@@ -79,6 +83,7 @@ class HandlerRegistry:
         self.bot.register_message_handler(self.new_thread_command.handle, commands=['new'])
         self.bot.register_message_handler(self.list_threads_command.handle, commands=['threads'])
         self.bot.register_message_handler(self.switch_thread_command.handle, commands=['switch'])
+        self.bot.register_message_handler(self.delete_thread_command.handle, commands=['delete'])
 
         # Catch-all handler for text messages
         self.bot.register_message_handler(self.text_message_handler.handle, func=lambda message: True, content_types=['text'])

@@ -108,8 +108,7 @@ class VectorStore:
     def index_document(self, documents, semantic_chunk=False):
         """
         Chunks and indexes a list of documents, checking first if a document with the same date metadata already exists.
-        Returns True if indexing occurred, False if skipped or failed.
-        This is a private helper method.
+        Returns True if indexing occurred, False if skipped or failed.        
         """
         if not documents:
             logger.warning("Attempted to index an empty list of documents. Skipping.")
@@ -119,12 +118,18 @@ class VectorStore:
         doc_metadata = documents[0].metadata
         extracted_date = doc_metadata.get('date') 
         extracted_language = doc_metadata.get('language') 
-        source_file = doc_metadata.get('source', 'N/A') # Get source for logging
-
+        source_file = doc_metadata.get('source', 'N/A') 
+        # Determine source for logging
+        if source_file and os.path.isabs(source_file) and os.path.exists(source_file):
+            log_source = os.path.basename(source_file)
+        else:
+            log_source = "web_content"
+        
         # 1. Check if document already exists using the helper method
         if self.document_exists(extracted_date, extracted_language):
-            logger.info(f"Document with date {extracted_date} and language {extracted_language} (source: {os.path.basename(source_file)}) already indexed. Skipping.")
-            return False # Indicate skip
+            logger.info(f"Document with date {extracted_date} and language {extracted_language} "
+                        f"(source: {log_source}) already indexed. Skipping.")
+            return False 
 
         # 2. If not existing, proceed with chunking and adding
         logger.info(f"Proceeding with chunking and indexing for {os.path.basename(source_file)}.")
@@ -144,16 +149,16 @@ class VectorStore:
                 )
                     
             if not texts:
-                 logger.warning(f"No text chunks generated after processing {os.path.basename(source_file)}. Nothing to index.")
-                 return False # Indicate skip/failure
+                 logger.warning(f"No text chunks generated after processing {log_source}. Nothing to index.")
+                 return False 
 
             self.add_documents(texts)
-            logger.info(f"Successfully indexed {len(texts)} chunks from {os.path.basename(source_file)}.")
-            return True # Indicate successful indexing
+            logger.info(f"Successfully indexed {len(texts)} chunks from {log_source}.")
+            return True 
 
         except Exception as e:
-            logger.error(f"Error during chunking or adding documents for {os.path.basename(source_file)}: {e}", exc_info=True)
-            return False # Indicate failure
+            logger.error(f"Error during chunking or adding documents for {log_source}: {e}", exc_info=True)
+            return False
 
     
     def log_all_indexed_metadata(self):
@@ -258,7 +263,7 @@ class VectorStore:
             return "Error: Vector Store is not available."
         
         search_kwargs = {"k": k}
-        filter_dict = {}
+        filters = []
 
         # Build filter for date
         if date_filter:
@@ -266,7 +271,7 @@ class VectorStore:
                 filter_date = datetime.datetime.strptime(date_filter, '%Y-%m-%d')
                 formatted_date = filter_date.strftime('%Y-%m-%d')
                 logger.info(f"Applying date filter: {formatted_date}")
-                filter_dict["date"] = formatted_date
+                filters.append({"date": formatted_date})
             except ValueError:
                 logger.error(f"Invalid date format provided: {date_filter}. Should be YYYY-MM-DD.")
                 return "Error: Invalid date format for filter. Please use YYYY-MM-DD."
@@ -274,11 +279,16 @@ class VectorStore:
         # Build filter for language
         if language:
             logger.info(f"Applying language filter: {language}")
-            filter_dict["language"] = language
+            filters.append({"language": language})
 
         # If any filter is set, add to search_kwargs
-        if filter_dict:
-            search_kwargs["filter"] = filter_dict
+        if filters:
+            if len(filters) > 1:
+                # Use $and for multiple filters, which is the correct format for ChromaDB
+                search_kwargs["filter"] = {"$and": filters}
+            else:
+                # Use the single filter directly
+                search_kwargs["filter"] = filters[0]
 
         try:
             retriever = self.vectordb.as_retriever(

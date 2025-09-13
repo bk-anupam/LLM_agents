@@ -4,12 +4,19 @@ import re
 import json
 import unicodedata # Added for character category checking
 import codecs
+from RAG_BOT.src.config.config import Config
 from RAG_BOT.src.logger import logger
 from langdetect import detect, LangDetectException, DetectorFactory
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from typing import List 
 from datetime import datetime
+from google.cloud import firestore
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.memory import InMemorySaver
+
+from RAG_BOT.src.persistence.firestore_checkpointer import AsyncFirestoreSaver
+
 
 def _devanagari_to_ascii_digits(devanagari_string: str) -> str:
     """Converts Devanagari numerals in a string to ASCII digits."""
@@ -84,7 +91,7 @@ def extract_date_from_text(text: str, return_date_format: str = "%Y-%m-%d") -> O
                     logger.error(f"Unexpected error parsing date '{matched_date_str}' (converted to '{ascii_date_str}') with format '{date_format}': {e}")                    
 
     logger.info(f"No date pattern matched in text: '{text[:100]}...'")
-    return None # Return None if no pattern matched or parsing failed
+    return None 
 
 
 def remove_control_characters(text: str) -> str:
@@ -231,3 +238,27 @@ def get_conversational_history(messages: List[BaseMessage]) -> List[BaseMessage]
             continue
         conversational_messages.append(msg)
     return conversational_messages
+
+
+def get_checkpointer(config: Config) -> BaseCheckpointSaver:
+    """
+    Factory function to get the appropriate checkpointer based on configuration.
+    """
+    checkpointer_type = config.CHECKPOINTER_TYPE.lower()
+    logger.info(f"Creating checkpointer of type: '{checkpointer_type}'")
+
+    if checkpointer_type == "firestore":
+        try:
+            db = firestore.AsyncClient(project=config.GCP_PROJECT_ID, database="rag-bot-firestore-db")
+            checkpointer = AsyncFirestoreSaver(db)
+            logger.info("AsyncFirestoreSaver checkpointer initialized successfully.")
+            return checkpointer
+        except Exception as e:
+            logger.error(f"Failed to initialize Firestore checkpointer: {e}", exc_info=True)
+            raise
+    elif checkpointer_type == "in_memory":
+        checkpointer = InMemorySaver()
+        logger.info("InMemorySaver checkpointer initialized successfully.")
+        return checkpointer
+    else:
+        raise ValueError(f"Unsupported checkpointer type in config: '{config.CHECKPOINTER_TYPE}'")

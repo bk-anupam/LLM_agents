@@ -14,9 +14,9 @@ def test_query_index():
     vs = VectorStore(persist_directory=config.VECTOR_STORE_PATH, config=config)
     # query = "दूसरों की चेकिंग करने के बारे में बाबा ने मुरली में क्या बताया है?"
     # query = "भट्ठी की जो सारी पढ़ाई वा शिक्षा ली उसका सार कौन से तीन शब्दों में याद रखने के लिए बाबा ने मुरलियों में जोर दिया"
-    query = "संगमयुगी ब्राह्मण जीवन में पवित्रता का महत्त्व क्या है?"
+    query = "2025-09-10 की मुरली की क्या शिक्षाएं हैं?"
     # query = "What did Baba say about checking others in the Murlis?"
-    test_date = None
+    test_date = "2025-09-10"
     language = "hi"
     logger.info(f"Testing query: {query} with date filter: {test_date} and language: {language}")
     try:

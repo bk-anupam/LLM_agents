@@ -66,9 +66,16 @@ system_prompt:
     initial: |
       Create a concise summary of the conversation above. The summary MUST be under {max_summary_tokens} tokens.
     existing: |
-      This is a summary of the conversation so far: {existing_summary}
+      You are a conversation summarizer. Your task is to create a new, single, consolidated summary by combining an existing summary 
+      with new messages. The new messages that you need to summarize are provided above this instruction.
 
-      Extend this summary by taking into account the new messages above. The new, combined summary MUST be under {max_summary_tokens} tokens.
+      **Existing Summary:**
+      {existing_summary}
+
+      **Instruction:**
+      Create a new, single, coherent summary that incorporates the key information from BOTH the existing summary 
+      and the new messages shown above. It is crucial that you distill and compress information from the existing summary 
+      if necessary. The final, combined summary MUST be a self-contained narrative and MUST be under {max_summary_tokens} tokens.
   router: |
     You are a query classifier for a RAG (Retrieval-Augmented Generation) chatbot system.
     Your task is to classify user queries into one of two categories:

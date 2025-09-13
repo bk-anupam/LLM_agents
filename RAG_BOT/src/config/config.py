@@ -75,7 +75,7 @@ class Config:
         # Max chunks to fetch for a single Murli
         self.MAX_CHUNKS_PER_MURLI_RECON = self._get_config_value(
             'MAX_CHUNKS_PER_MURLI_RECON', 
-            int(os.environ.get('MAX_CHUNKS_PER_MURLI_RECON', 20))
+            int(os.environ.get('MAX_CHUNKS_PER_MURLI_RECON', 25))
         ) 
 
         # Sentence window reconstruction
@@ -141,6 +141,10 @@ class Config:
         self.MAX_CONVERSATION_TURNS = self._get_config_value(
             'MAX_CONVERSATION_TURNS',
             int(os.environ.get('MAX_CONVERSATION_TURNS', 3))
+        )
+        self.GCS_VECTOR_STORE_PATH = self._get_config_value(
+            'GCS_VECTOR_STORE_PATH',
+            os.environ.get('GCS_VECTOR_STORE_PATH')
         )
 
     def _get_config_value(self, key, default_value):

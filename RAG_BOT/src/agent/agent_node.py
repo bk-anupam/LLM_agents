@@ -161,6 +161,7 @@ async def handle_question_node(state: AgentState, llm_with_tools: ChatGoogleGene
         # Reset fields for the new phase initiated by this HumanMessage/LLM response
         "evaluation_result": None,
         "documents": [], # Clear previous documents before new tool call
+        "docs_to_index": [], # Clear previous docs to index
         "retrieved_context": None,   # Clear previous concatenated context
         "last_retrieval_source": None, # Will be set by next tool processing
         # Preserve retry_attempted if it was set by a preceding node (e.g., reframe_query_node)

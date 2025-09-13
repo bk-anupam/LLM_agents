@@ -15,12 +15,15 @@ from RAG_BOT.src.context_retrieval.context_retriever_tool import create_context_
 from RAG_BOT.src.agent.state import AgentState
 from RAG_BOT.src.agent.agent_node import handle_question_node, generate_final_response
 from RAG_BOT.src.agent.retrieval_nodes import rerank_context_node
-from RAG_BOT.src import utils # Ensure utils is importable
+from RAG_BOT.src import utils 
 from RAG_BOT.src.agent.evaluation_nodes import evaluate_context_node, reframe_query_node
 from RAG_BOT.src.agent.process_tool_output_node import process_tool_output_node
 from RAG_BOT.src.agent.prompts import get_custom_summary_prompt, get_initial_summary_prompt, get_existing_summary_prompt
 from RAG_BOT.src.agent.custom_nodes import LoggingSummarizationNode
 from RAG_BOT.src.agent.router_node import router_node, route_query_decision
+from RAG_BOT.src.agent.indexing_node import get_indexing_and_sync_node
+from RAG_BOT.src.persistence.vector_store import VectorStore
+from RAG_BOT.src.services.gcs_uploader import GCSUploaderService
 
 # --- Conditional Edge Logic ---
 
@@ -69,11 +72,11 @@ async def get_mcp_server_tools(config_instance: Config):
     """
     if config_instance.DEV_MODE:
         tavily_mcp_command = f"export TAVILY_API_KEY='{config_instance.TAVILY_API_KEY}' && " \
-                            "source /home/bk_anupam/.nvm/nvm.sh > /dev/null 2>&1 && "\
-                            "nvm use v22.14.0 > /dev/null 2>&1 && "\
+                            "source /home/bk_anupam/.nvm/nvm.sh > /dev/null 2>&1 && " \
+                            "nvm use v22.14.0 > /dev/null 2>&1 && " \
                             "npx --quiet -y tavily-mcp@0.2.1"
     else:
-        tavily_mcp_command = f"export TAVILY_API_KEY='{config_instance.TAVILY_API_KEY}' && "\
+        tavily_mcp_command = f"export TAVILY_API_KEY='{config_instance.TAVILY_API_KEY}' && " \
                             "npx --quiet -y tavily-mcp@0.2.1"
 
     mcp_client = MultiServerMCPClient(
@@ -201,6 +204,7 @@ def clear_state_node(state: AgentState) -> AgentState:
     state['current_query'] = None
     state['retrieved_context'] = None
     state['documents'] = None
+    state['docs_to_index'] = None
     state['evaluation_result'] = None
     state['retry_attempted'] = False
     state['web_search_attempted'] = False
@@ -226,7 +230,7 @@ def _define_edges_for_graph(builder: StateGraph):
         }
     )    
     # Conversational path goes directly to end
-    builder.add_edge("conversational_handler", END)    
+    builder.add_edge("conversational_handler", END)
     # RAG path continues with existing logic
     builder.add_conditional_edges(
         "agent_initial",
@@ -245,8 +249,9 @@ def _define_edges_for_graph(builder: StateGraph):
         }
     )
     builder.add_edge("tool_invoker", "process_tool_output")
+    builder.add_edge("process_tool_output", "index_and_sync")  # New edge
     builder.add_conditional_edges(
-        "process_tool_output",
+        "index_and_sync",  # Edge from the new node
         route_after_retrieval,
         {
             "rerank_context": "rerank_context",
@@ -268,10 +273,16 @@ def _define_edges_for_graph(builder: StateGraph):
 
 
 # --- Graph Builder ---
-async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: Optional[BaseCheckpointSaver] = None) -> StateGraph:
+async def build_agent(
+    vector_store: VectorStore, 
+    config_instance: Config, 
+    gcs_uploader: GCSUploaderService, 
+    checkpointer: Optional[BaseCheckpointSaver] = None
+) -> StateGraph:
     """Builds the multi-node LangGraph agent."""
     llm, reranker_model = _initialize_llm_and_reranker(config_instance)
-    ctx_retriever_tool_instance, available_tools = await _prepare_tools(vectordb, config_instance) 
+    # Note: create_context_retriever_tool expects the raw Chroma DB, not the wrapper
+    ctx_retriever_tool_instance, available_tools = await _prepare_tools(vector_store.get_vectordb(), config_instance) 
     llm_with_tools = llm.bind_tools(available_tools)
 
     # Single ToolNode for all available tools
@@ -292,6 +303,13 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
     )
     evaluate_context_node_runnable = functools.partial(evaluate_context_node, llm=llm)    
     reframe_query_node_runnable = functools.partial(reframe_query_node, llm=llm)
+    
+    # New node for indexing and syncing
+    index_and_sync_node_runnable = get_indexing_and_sync_node(
+        vector_store=vector_store, 
+        gcs_uploader=gcs_uploader, 
+        config=config_instance
+    )
         
     # Instantiate the summarization node. Limit the max output tokens to avoid exceeding MAX_SUMMARY_TOKENS.
     summarization_model = llm.bind(generation_config={"max_output_tokens": config_instance.MAX_SUMMARY_TOKENS})
@@ -323,6 +341,7 @@ async def build_agent(vectordb: Chroma, config_instance: Config, checkpointer: O
     builder.add_node("tool_invoker", tool_invoker_node) 
     builder.add_node("force_web_search", force_web_search_node) 
     builder.add_node("process_tool_output", process_tool_output_node) 
+    builder.add_node("index_and_sync", index_and_sync_node_runnable) # New node
     builder.add_node("rerank_context", rerank_context_node_runnable) 
     builder.add_node("evaluate_context", evaluate_context_node_runnable)
     builder.add_node("reframe_query", reframe_query_node_runnable)
