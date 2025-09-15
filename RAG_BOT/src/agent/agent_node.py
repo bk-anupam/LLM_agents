@@ -152,7 +152,7 @@ async def handle_question_node(state: AgentState, llm_with_tools: ChatGoogleGene
 
     # 3. Invoke the template to get the fully constructed prompt messages
     base_prompt_messages = handle_question_prompt_template.invoke(prompt_values).to_messages()    
-    logger.info(f"Prompt messages:\nSystem: {base_prompt_messages[0].content}\nHuman: {base_prompt_messages[1].content}")
+    logger.debug(f"Prompt messages:\nSystem: {base_prompt_messages[0].content}\nHuman: {base_prompt_messages[1].content}")
 
     # Build conversation context for tool-calling decision    
     conversation_context_messages = _get_conversation_context_messages(messages, app_config)
