@@ -170,20 +170,25 @@ class Config:
         return cls.PROMPTS.get('response_guidelines', {}).get(mode, '')
 
     @classmethod
-    def get_system_prompt(cls, language_code: str, mode: str = 'default'):
-        """Gets the combined system prompt including base persona, guidance, and language instruction."""
-        base_persona = cls.PROMPTS.get('system_prompt', {}).get('bk_persona', '')
-        guidance = cls.PROMPTS.get('system_prompt', {}).get('question_guidance', '')
-        response_guidelines = cls.get_response_guidelines(mode)
-        lang_instruction = cls.get_bk_persona_language_instruction(language_code)
-        # Combine, adding a newline before the instruction if it exists
-        return f"{base_persona}\n{response_guidelines}\n{guidance}\n{lang_instruction}".strip()
+    def get_handle_question_system_prompt_template(cls):
+        """Gets the system prompt template for the handle_question_node."""
+        return cls.PROMPTS.get('handle_question_prompt_system', '')
 
+    @classmethod
+    def get_handle_question_human_prompt_template(cls):
+        """Gets the human prompt template for the handle_question_node."""
+        return cls.PROMPTS.get('handle_question_prompt_human', '')
+    
     @classmethod
     def get_bk_persona_prompt(cls):
         """Gets the base BK persona system prompt (without language instruction - remains language-agnostic)."""
         # This now returns only the base English text
         return cls.PROMPTS.get('system_prompt', {}).get('bk_persona', '')
+
+    @classmethod
+    def get_tool_calling_instructions(cls):
+        """Gets the dedicated tool calling instructions."""
+        return cls.PROMPTS.get('tool_calling_instructions', '')
 
     @classmethod
     def get_router_system_prompt(cls):
@@ -235,32 +240,17 @@ class Config:
     @classmethod
     def get_final_answer_system_prompt_template(cls, language_code: str, mode: str = 'default'):
         """
-        Gets the final answer system prompt template including language instruction,
-        based on the specified mode.
+        Gets the final answer system prompt template string based on the specified mode.
+        The template string contains placeholders to be filled at runtime.
         """
         prompt_key = f'final_answer_prompt_system_{mode}'
         base_template = cls.PROMPTS.get(prompt_key, cls.PROMPTS.get('final_answer_prompt_system_default', ''))
-        
-        lang_instruction = cls.get_final_answer_language_instruction(language_code) # Fetch dynamic instruction based on arg
-        
-        # Find the position of 'CRITICAL INSTRUCTION:...' 
-        insertion_point_str = "CRITICAL INSTRUCTION:"
-        insertion_point = base_template.find(insertion_point_str)
-        
-        if lang_instruction and insertion_point != -1:
-            # Insert instruction before the JSON format part
-            return f"{base_template[:insertion_point]}{lang_instruction}\n{base_template[insertion_point:]}".strip()
-        elif lang_instruction:
-            # Fallback if insertion point not found, append at the end
-            return f"{base_template}\n{lang_instruction}".strip()
-        else:
-            # If instruction is empty, return base
-            return base_template
+        return base_template
 
     @classmethod
     def get_final_answer_human_prompt_template(cls):
         """Gets the final answer human prompt template."""
-        return cls.PROMPTS.get('final_answer_prompt_human', '')
+        return cls.PROMPTS.get('final_answer_prompt_human', '')    
 
     @classmethod
     def get_judge_prompt_template(cls):

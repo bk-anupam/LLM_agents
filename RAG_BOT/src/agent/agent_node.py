@@ -12,7 +12,7 @@ from RAG_BOT.src import utils
 from RAG_BOT.src.config.config import Config
 from RAG_BOT.src.logger import logger
 from RAG_BOT.src.agent.state import AgentState
-from RAG_BOT.src.agent.prompts import get_final_answer_chat_prompt
+from RAG_BOT.src.agent.prompts import get_final_answer_chat_prompt, get_handle_question_chat_prompt
 
 
 def _generate_formatted_answer(state: AgentState, llm: ChatGoogleGenerativeAI, context_to_use: str) -> Dict[str, Any]:
@@ -28,7 +28,10 @@ def _generate_formatted_answer(state: AgentState, llm: ChatGoogleGenerativeAI, c
     final_answer_chain = final_answer_prompt | llm
     
     final_answer_llm_input = {
-        "system_base": Config.get_system_prompt(language_code, mode),          
+        "base_persona": Config.get_bk_persona_prompt(),
+        "response_guidelines": Config.get_response_guidelines(mode),
+        "question_guidance": Config.get_question_guidance_prompt(),
+        "lang_instruction": Config.get_final_answer_language_instruction(language_code),
         "original_query": original_query,
         "context": context_to_use
     }
@@ -134,21 +137,37 @@ async def handle_question_node(state: AgentState, llm_with_tools: ChatGoogleGene
     logger.info(f"Handle Question node received HumanMessage: {last_message.content}")
 
     # Prepare messages for LLM with tools
-    system_prompt_msg = SystemMessage(content=Config.get_system_prompt(language_code, mode))
+    # 1. Get the full prompt template (system + human with placeholders)
+    handle_question_prompt_template = get_handle_question_chat_prompt()
+
+    # 2. Define all values for the placeholders in the template
+    prompt_values = {
+        "base_persona": Config.get_bk_persona_prompt(),
+        "response_guidelines": Config.get_response_guidelines(mode),
+        "question_guidance": Config.get_question_guidance_prompt(),
+        "lang_instruction": Config.get_bk_persona_language_instruction(language_code),
+        "question": last_message.content,
+        "tool_instructions": Config.get_tool_calling_instructions()
+    }
+
+    # 3. Invoke the template to get the fully constructed prompt messages
+    base_prompt_messages = handle_question_prompt_template.invoke(prompt_values).to_messages()    
+    logger.info(f"Prompt messages:\nSystem: {base_prompt_messages[0].content}\nHuman: {base_prompt_messages[1].content}")
+
     # Build conversation context for tool-calling decision    
     conversation_context_messages = _get_conversation_context_messages(messages, app_config)
     if conversation_context_messages:
         # Include recent conversation context for better tool-calling decisions
-        tool_calling_prompt = [system_prompt_msg] + conversation_context_messages + [last_message]
+        tool_calling_prompt = [base_prompt_messages[0]] + conversation_context_messages + [base_prompt_messages[1]]
         logger.info(f"Using conversational context with {len(conversation_context_messages)} previous messages")
     else:
         # Fallback to original approach for first message
-        tool_calling_prompt = [system_prompt_msg, last_message]
+        tool_calling_prompt = base_prompt_messages
         logger.info("No conversational context available, using standalone message")    
 
     logger.info("Invoking LLM for tool-calling decision ...")
     response = await llm_with_tools.ainvoke(tool_calling_prompt)
-    logger.info("LLM invoked for initial decision.")
+    logger.info("LLM invoked for tool-calling decision.")
 
     # Update state after LLM makes a decision (e.g., calls a tool or answers directly)
     updated_attrs = {

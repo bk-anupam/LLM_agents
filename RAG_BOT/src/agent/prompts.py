@@ -30,12 +30,21 @@ def get_reframe_question_chat_prompt():
 
 def get_final_answer_chat_prompt(language_code: str, mode: str):
     """Creates the chat prompt template for generating the final answer, using the specified language and mode."""
-    system_template = Config.get_final_answer_system_prompt_template(language_code=language_code, mode=mode)
+    system_template = Config.get_final_answer_system_prompt_template(language_code, mode=mode)
     human_template = Config.get_final_answer_human_prompt_template() 
     return ChatPromptTemplate.from_messages([
         ("system", system_template),
         ("human", human_template),
     ])
+
+def get_handle_question_chat_prompt():
+    """
+    Creates the chat prompt template for the handle_question_node, which decides on tool usage.
+    The system and human messages are templates that will be filled at runtime.
+    """
+    system_template = Config.get_handle_question_system_prompt_template()
+    human_template = Config.get_handle_question_human_prompt_template()
+    return ChatPromptTemplate.from_messages([("system", system_template), ("human", human_template)])
 
 def get_initial_summary_prompt():
     """
