@@ -46,6 +46,18 @@ def get_handle_question_chat_prompt():
     human_template = Config.get_handle_question_human_prompt_template()
     return ChatPromptTemplate.from_messages([("system", system_template), ("human", human_template)])
 
+def get_conversational_chat_prompt():
+    """
+    Creates the chat prompt template for the conversational_node.
+    The system message is a template that will be filled at runtime.
+    The history is injected via a placeholder.
+    """
+    system_template = Config.get_conversational_system_prompt_template()
+    return ChatPromptTemplate.from_messages([
+        ("system", system_template),
+        ("placeholder", "{history}"),
+    ])
+
 def get_initial_summary_prompt():
     """
     Returns a ChatPromptTemplate for the initial conversation summary.

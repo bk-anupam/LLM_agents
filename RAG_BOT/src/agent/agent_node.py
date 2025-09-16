@@ -29,9 +29,9 @@ def _generate_formatted_answer(state: AgentState, llm: ChatGoogleGenerativeAI, c
     
     final_answer_llm_input = {
         "base_persona": Config.get_bk_persona_prompt(),
-        "response_guidelines": Config.get_response_guidelines(mode),
-        "question_guidance": Config.get_question_guidance_prompt(),
+        "response_guidelines": Config.get_response_guidelines(mode),        
         "lang_instruction": Config.get_final_answer_language_instruction(language_code),
+        "json_format_instructions": Config.get_json_format_instructions(),
         "original_query": original_query,
         "context": context_to_use
     }
@@ -81,8 +81,7 @@ def generate_final_response(state: AgentState, llm: ChatGoogleGenerativeAI) -> D
          logger.info("Initial attempt, no evaluation, and no content for final answer. Falling back to internal knowledge.")
          fallback_to_internal_knowledge = True
 
-    if not fallback_to_internal_knowledge and content_for_final_answer:
-        logger.info(f"Proceeding to format final answer using content: '{str(content_for_final_answer)[:200]}...'")
+    if not fallback_to_internal_knowledge and content_for_final_answer:        
         return _generate_formatted_answer(state, llm, content_for_final_answer)
     else:
         logger.info("Answering from internal knowledge about Brahma Kumaris philosophy.")

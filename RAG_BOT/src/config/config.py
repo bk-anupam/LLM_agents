@@ -44,7 +44,8 @@ class Config:
         self.INDEXED_DATA_PATH = self._get_config_value('INDEXED_DATA_PATH', os.environ.get('INDEXED_DATA_PATH', None))
         self.WEBHOOK_URL = self._get_config_value('WEBHOOK_URL', os.environ.get('WEBHOOK_URL', None))
         self.PORT = self._get_config_value('MYPORT', int(os.environ.get('MYPORT', 5000)))
-        self.LLM_MODEL_NAME = self._get_config_value('LLM_MODEL_NAME', os.environ.get('LLM_MODEL_NAME', 'gemini-2.5-flash-preview-04-17'))
+        self.LLM_MODEL_NAME = self._get_config_value('LLM_MODEL_NAME', os.environ.get('LLM_MODEL_NAME', 'gemini-2.5-flash'))
+        self.TOOL_CALLING_LLM_MODEL_NAME = self._get_config_value('TOOL_CALLING_LLM_MODEL_NAME', os.environ.get('TOOL_CALLING_LLM_MODEL_NAME', 'gemini-2.5-pro'))
         self.EMBEDDING_MODEL_NAME = self._get_config_value('EMBEDDING_MODEL_NAME', os.environ.get('EMBEDDING_MODEL_NAME', 'all-MiniLM-L6-v2'))
         self.RERANKER_MODEL_NAME = self._get_config_value('RERANKER_MODEL_NAME', os.environ.get('RERANKER_MODEL_NAME', 'cross-encoder/ms-marco-MiniLM-L-6-v2'))
         
@@ -196,21 +197,9 @@ class Config:
         return cls.PROMPTS.get('system_prompt', {}).get('router', '')
 
     @classmethod
-    def get_conversational_system_prompt(self, language_code: str):
-        """Gets the conversation system prompt with language instruction."""
-        lang_instruction = self.get_final_answer_language_instruction(language_code)
-        base_prompt = self.PROMPTS.get('system_prompt', {}).get('conversation', '')
-        
-        insertion_point_str = "IMPORTANT:"
-        insertion_point = base_prompt.find(insertion_point_str)
-        
-        if lang_instruction and insertion_point != -1:
-            # Insert instruction before the JSON format part
-            return f"{base_prompt[:insertion_point]}{lang_instruction}\n{base_prompt[insertion_point:]}".strip()
-        elif lang_instruction:
-            return f"{base_prompt}\n{lang_instruction}".strip()
-        else:
-            return base_prompt.strip()
+    def get_conversational_system_prompt_template(cls):
+        """Gets the system prompt template for the conversational_node."""
+        return cls.PROMPTS.get('system_prompt', {}).get('conversation', '')
 
     @classmethod
     def get_question_guidance_prompt(cls):
@@ -256,6 +245,11 @@ class Config:
     def get_judge_prompt_template(cls):
         """Gets the judge prompt template."""
         return cls.PROMPTS.get('judge_prompt_template', '')
+
+    @classmethod
+    def get_json_format_instructions(cls):
+        """Gets the json_format_prompt."""
+        return cls.PROMPTS.get('json_format_prompt', '')
 
     @classmethod
     def get_user_message(cls, message_key: str, default: str = ""):

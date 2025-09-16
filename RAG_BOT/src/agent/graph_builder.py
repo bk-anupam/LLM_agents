@@ -1,11 +1,11 @@
 import functools
-from typing import Literal, Optional, List, Dict, Any
+from typing import Optional,  Dict, Any
 from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from sentence_transformers import CrossEncoder # type: ignore
+from sentence_transformers import CrossEncoder
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from RAG_BOT.src.agent.conversational_node import conversational_node
@@ -24,47 +24,11 @@ from RAG_BOT.src.agent.router_node import router_node, route_query_decision
 from RAG_BOT.src.agent.indexing_node import get_indexing_and_sync_node
 from RAG_BOT.src.persistence.vector_store import VectorStore
 from RAG_BOT.src.services.gcs_uploader import GCSUploaderService
-
-# --- Conditional Edge Logic ---
-
-def decide_next_step_after_evaluation(state: AgentState) -> Literal["reframe_query", "agent_final_answer"]:
-    """
-    Determines the next node based on evaluation result and retry status.    
-    """
-    logger.info("--- Deciding Next Step After Evaluation ---")
-    evaluation = state.get('evaluation_result')
-    retry_attempted = state.get('retry_attempted', False)
-    logger.info(f"Evaluation: {evaluation}, Retry Attempted: {retry_attempted}")
-    if evaluation == "sufficient":
-        logger.info("Decision: Context sufficient, proceed to final answer generation.")
-        return "agent_final_answer"
-    elif not retry_attempted:
-        logger.info("Decision: Context insufficient, attempt to reframe query.")
-        return "reframe_query"
-    else:
-        logger.info("Decision: Context insufficient after retry, proceed to 'cannot find' message.")
-        return "agent_final_answer"
-
-
-def should_invoke_tool_after_web_search_force(state: AgentState) -> Literal["tool_invoker", "agent_final_answer"]:
-    """
-    Checks if force_web_search_node produced a tool call.
-    If yes, invoke the tool.
-    If no (e.g., no date found), go to the final answer node to prevent loops.
-    """
-    logger.info("--- Deciding whether to invoke tool after force_web_search ---")
-    messages = state.get("messages", [])
-    last_message = messages[-1] if messages else None
-
-    if isinstance(last_message, AIMessage) and last_message.tool_calls:
-        # Check if the tool call was added by force_web_search
-        if any(tc.get("id") == "tool_call_forced_web_search" for tc in last_message.tool_calls):
-            logger.info("Decision: Tool call found from force_web_search. Invoking tool.")
-            return "tool_invoker"
-
-    logger.info("Decision: No tool call from force_web_search. Proceeding to final answer to prevent loop.")
-    return "agent_final_answer"
-
+from RAG_BOT.src.agent.conditional_edges import (
+    decide_next_step_after_evaluation,
+    should_invoke_tool_after_web_search_force,
+    route_after_retrieval
+)
 
 async def get_mcp_server_tools(config_instance: Config):
     """
@@ -133,11 +97,13 @@ async def force_web_search_node(state: AgentState) -> Dict[str, Any]:
     return {"messages": messages + [tool_call_message], "web_search_attempted": True}
 
 
-def _initialize_llm_and_reranker(config_instance: Config):
-    """Initializes the LLM and reranker model."""
-    effective_model_name = config_instance.LLM_MODEL_NAME
-    llm = ChatGoogleGenerativeAI(model=effective_model_name, temperature=config_instance.TEMPERATURE)
-    logger.info(f"LLM model '{effective_model_name}' initialized with temperature {config_instance.TEMPERATURE}.")
+def _initialize_models(config_instance: Config):
+    """Initializes the LLMs and reranker model."""
+    llm_flash = ChatGoogleGenerativeAI(model=config_instance.LLM_MODEL_NAME, temperature=config_instance.TEMPERATURE)
+    logger.info(f"'{config_instance.LLM_MODEL_NAME}' initialized with temperature {config_instance.TEMPERATURE}.")
+
+    llm_pro = ChatGoogleGenerativeAI(model=config_instance.TOOL_CALLING_LLM_MODEL_NAME, temperature=config_instance.TEMPERATURE)
+    logger.info(f"'{config_instance.TOOL_CALLING_LLM_MODEL_NAME}' initialized with temperature {config_instance.TEMPERATURE}.")
 
     reranker_model = None
     try:
@@ -147,7 +113,7 @@ def _initialize_llm_and_reranker(config_instance: Config):
         logger.info("Reranker model loaded successfully.")
     except Exception as e:
         logger.error(f"Failed to load reranker model '{config_instance.RERANKER_MODEL_NAME}': {e}", exc_info=True)
-    return llm, reranker_model
+    return llm_flash, llm_pro, reranker_model
 
 
 async def _prepare_tools(vectordb: Chroma, config_instance: Config):
@@ -163,42 +129,12 @@ async def _prepare_tools(vectordb: Chroma, config_instance: Config):
     return ctx_retriever_tool_instance, available_tools
 
 
-def route_after_retrieval(state: AgentState) -> Literal["rerank_context", "force_web_search", "agent_final_answer"]:
-    """
-    Decides the next step after tool output has been processed.
-    - If documents found: rerank.
-    - If local search failed and web not tried: go back to agent_initial (which should be prompted for web search).
-    - Else (web search failed or no other options): go to final answer (likely "cannot find").
-    """
-    logger.info("--- Routing After Retrieval Attempt ---")
-    documents = state.get("documents")
-    last_retrieval_source = state.get("last_retrieval_source")
-    web_search_attempted = state.get("web_search_attempted", False)
-
-    logger.info(f"Routing with: docs_count={len(documents) if documents else 0}, last_retrieval_source='{last_retrieval_source}', "
-                f"web_search_attempted={web_search_attempted}")
-
-    if documents and len(documents) > 0:
-        logger.info(f"Documents found ({len(documents)}) from '{last_retrieval_source}'. Proceeding to rerank.")
-        return "rerank_context"
-    else: # No documents found
-        logger.info(f"No documents found from '{last_retrieval_source}' retrieval attempt.")
-        if last_retrieval_source == "local" and not web_search_attempted:
-            logger.info("Local retrieval failed, web search not yet attempted. Routing to force_web_search.")
-            return "force_web_search"
-        else:
-            logger.info("Web search already attempted and failed, or was the primary failed source, or agent decided against "
-                        f"web search. Proceeding to final answer.")
-            return "agent_final_answer"
-
-
 def clear_state_node(state: AgentState) -> AgentState:
     """
     Clears the transient state fields to prepare for a new query within the same conversation.
     Preserves long-term state like message history and user preferences.
     """
-    logger.info("--- Clearing Transient Agent State for New Query ---")
-    
+    logger.info("--- Clearing Transient Agent State for New Query ---")    
     # Fields to clear
     state['original_query'] = None
     state['current_query'] = None
@@ -210,10 +146,10 @@ def clear_state_node(state: AgentState) -> AgentState:
     state['web_search_attempted'] = False
     state['last_retrieval_source'] = None
     state['raw_retrieved_docs'] = None
-    state['route_decision'] = None
-    
+    state['route_decision'] = None    
     logger.info("State cleared. Preserved fields: 'messages', 'context', 'language_code', 'mode'.")
     return state
+
 
 def _define_edges_for_graph(builder: StateGraph):
     """Defines edges for the LangGraph builder with router logic."""
@@ -280,19 +216,19 @@ async def build_agent(
     checkpointer: Optional[BaseCheckpointSaver] = None
 ) -> StateGraph:
     """Builds the multi-node LangGraph agent."""
-    llm, reranker_model = _initialize_llm_and_reranker(config_instance)
+    llm_flash, llm_pro, reranker_model = _initialize_models(config_instance)
     # Note: create_context_retriever_tool expects the raw Chroma DB, not the wrapper
     ctx_retriever_tool_instance, available_tools = await _prepare_tools(vector_store.get_vectordb(), config_instance) 
-    llm_with_tools = llm.bind_tools(available_tools)
+    llm_with_tools = llm_flash.bind_tools(available_tools)
 
     # Single ToolNode for all available tools
     tool_invoker_node = ToolNode(tools=available_tools) 
 
     # Bind LLM and Reranker to Nodes
     handle_question_runnable  = functools.partial(handle_question_node, llm_with_tools=llm_with_tools, app_config=config_instance)
-    generate_final_response_runnable = functools.partial(generate_final_response, llm=llm)
-    router_node_runnable = functools.partial(router_node,llm=llm)
-    conversational_node_runnable = functools.partial(conversational_node, llm=llm)
+    generate_final_response_runnable = functools.partial(generate_final_response, llm=llm_flash)
+    router_node_runnable = functools.partial(router_node,llm=llm_flash)
+    conversational_node_runnable = functools.partial(conversational_node, llm=llm_flash)
     # Bind the loaded reranker model (or None if loading failed)
     # Use a lambda to ensure correct argument passing, especially for config_instance
     # The lambda will receive the 'state' from LangGraph as its first argument.
@@ -301,8 +237,8 @@ async def build_agent(
         reranker_model=reranker_model, # This is from graph_builder's scope
         app_config=config_instance    # This is also from graph_builder's scope
     )
-    evaluate_context_node_runnable = functools.partial(evaluate_context_node, llm=llm)    
-    reframe_query_node_runnable = functools.partial(reframe_query_node, llm=llm)
+    evaluate_context_node_runnable = functools.partial(evaluate_context_node, llm=llm_flash)    
+    reframe_query_node_runnable = functools.partial(reframe_query_node, llm=llm_flash)
     
     # New node for indexing and syncing
     index_and_sync_node_runnable = get_indexing_and_sync_node(
@@ -312,7 +248,7 @@ async def build_agent(
     )
         
     # Instantiate the summarization node. Limit the max output tokens to avoid exceeding MAX_SUMMARY_TOKENS.
-    summarization_model = llm.bind(generation_config={"max_output_tokens": config_instance.MAX_SUMMARY_TOKENS})
+    summarization_model = llm_pro.bind(generation_config={"max_output_tokens": config_instance.MAX_SUMMARY_TOKENS})
     # Get all three required prompts
     custom_summary_prompt = get_custom_summary_prompt()
     initial_summary_prompt = get_initial_summary_prompt()
@@ -343,7 +279,7 @@ async def build_agent(
     builder.add_node("process_tool_output", process_tool_output_node) 
     builder.add_node("index_and_sync", index_and_sync_node_runnable) # New node
     builder.add_node("rerank_context", rerank_context_node_runnable) 
-    builder.add_node("evaluate_context", evaluate_context_node_runnable)
+    builder.add_node("evaluate_context", evaluate_context_node_runnable) 
     builder.add_node("reframe_query", reframe_query_node_runnable)
     builder.add_node("agent_final_answer", generate_final_response_runnable)
 
