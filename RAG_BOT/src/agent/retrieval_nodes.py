@@ -73,7 +73,7 @@ def rerank_context_node(state: AgentState, reranker_model: CrossEncoder, app_con
                 murli_date = doc.metadata.get('date', None)
                 murli_language = doc.metadata.get('language', None)            
                 if murli_date and murli_language:
-                    source_key = f"Murli from {murli_date} ({murli_language})"
+                    source_key = f"Murli {murli_date}"
                     content_by_source[source_key].append(doc.page_content)
                 else:
                     content_by_source["Miscellaneous Context"].append(doc.page_content)

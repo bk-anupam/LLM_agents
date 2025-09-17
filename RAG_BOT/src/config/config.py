@@ -44,7 +44,8 @@ class Config:
         self.INDEXED_DATA_PATH = self._get_config_value('INDEXED_DATA_PATH', os.environ.get('INDEXED_DATA_PATH', None))
         self.WEBHOOK_URL = self._get_config_value('WEBHOOK_URL', os.environ.get('WEBHOOK_URL', None))
         self.PORT = self._get_config_value('MYPORT', int(os.environ.get('MYPORT', 5000)))
-        self.LLM_MODEL_NAME = self._get_config_value('LLM_MODEL_NAME', os.environ.get('LLM_MODEL_NAME', 'gemini-2.5-flash-preview-04-17'))
+        self.LLM_MODEL_NAME = self._get_config_value('LLM_MODEL_NAME', os.environ.get('LLM_MODEL_NAME', 'gemini-2.5-flash'))
+        self.TOOL_CALLING_LLM_MODEL_NAME = self._get_config_value('TOOL_CALLING_LLM_MODEL_NAME', os.environ.get('TOOL_CALLING_LLM_MODEL_NAME', 'gemini-2.5-pro'))
         self.EMBEDDING_MODEL_NAME = self._get_config_value('EMBEDDING_MODEL_NAME', os.environ.get('EMBEDDING_MODEL_NAME', 'all-MiniLM-L6-v2'))
         self.RERANKER_MODEL_NAME = self._get_config_value('RERANKER_MODEL_NAME', os.environ.get('RERANKER_MODEL_NAME', 'cross-encoder/ms-marco-MiniLM-L-6-v2'))
         
@@ -170,15 +171,15 @@ class Config:
         return cls.PROMPTS.get('response_guidelines', {}).get(mode, '')
 
     @classmethod
-    def get_system_prompt(cls, language_code: str, mode: str = 'default'):
-        """Gets the combined system prompt including base persona, guidance, and language instruction."""
-        base_persona = cls.PROMPTS.get('system_prompt', {}).get('bk_persona', '')
-        guidance = cls.PROMPTS.get('system_prompt', {}).get('question_guidance', '')
-        response_guidelines = cls.get_response_guidelines(mode)
-        lang_instruction = cls.get_bk_persona_language_instruction(language_code)
-        # Combine, adding a newline before the instruction if it exists
-        return f"{base_persona}\n{response_guidelines}\n{guidance}\n{lang_instruction}".strip()
+    def get_handle_question_system_prompt_template(cls):
+        """Gets the system prompt template for the handle_question_node."""
+        return cls.PROMPTS.get('handle_question_prompt_system', '')
 
+    @classmethod
+    def get_handle_question_human_prompt_template(cls):
+        """Gets the human prompt template for the handle_question_node."""
+        return cls.PROMPTS.get('handle_question_prompt_human', '')
+    
     @classmethod
     def get_bk_persona_prompt(cls):
         """Gets the base BK persona system prompt (without language instruction - remains language-agnostic)."""
@@ -186,26 +187,19 @@ class Config:
         return cls.PROMPTS.get('system_prompt', {}).get('bk_persona', '')
 
     @classmethod
+    def get_tool_calling_instructions(cls):
+        """Gets the dedicated tool calling instructions."""
+        return cls.PROMPTS.get('tool_calling_instructions', '')
+
+    @classmethod
     def get_router_system_prompt(cls):
         """Gets the system prompt for the router node."""
         return cls.PROMPTS.get('system_prompt', {}).get('router', '')
 
     @classmethod
-    def get_conversational_system_prompt(self, language_code: str):
-        """Gets the conversation system prompt with language instruction."""
-        lang_instruction = self.get_final_answer_language_instruction(language_code)
-        base_prompt = self.PROMPTS.get('system_prompt', {}).get('conversation', '')
-        
-        insertion_point_str = "IMPORTANT:"
-        insertion_point = base_prompt.find(insertion_point_str)
-        
-        if lang_instruction and insertion_point != -1:
-            # Insert instruction before the JSON format part
-            return f"{base_prompt[:insertion_point]}{lang_instruction}\n{base_prompt[insertion_point:]}".strip()
-        elif lang_instruction:
-            return f"{base_prompt}\n{lang_instruction}".strip()
-        else:
-            return base_prompt.strip()
+    def get_conversational_system_prompt_template(cls):
+        """Gets the system prompt template for the conversational_node."""
+        return cls.PROMPTS.get('system_prompt', {}).get('conversation', '')
 
     @classmethod
     def get_question_guidance_prompt(cls):
@@ -235,37 +229,27 @@ class Config:
     @classmethod
     def get_final_answer_system_prompt_template(cls, language_code: str, mode: str = 'default'):
         """
-        Gets the final answer system prompt template including language instruction,
-        based on the specified mode.
+        Gets the final answer system prompt template string based on the specified mode.
+        The template string contains placeholders to be filled at runtime.
         """
         prompt_key = f'final_answer_prompt_system_{mode}'
         base_template = cls.PROMPTS.get(prompt_key, cls.PROMPTS.get('final_answer_prompt_system_default', ''))
-        
-        lang_instruction = cls.get_final_answer_language_instruction(language_code) # Fetch dynamic instruction based on arg
-        
-        # Find the position of 'CRITICAL INSTRUCTION:...' 
-        insertion_point_str = "CRITICAL INSTRUCTION:"
-        insertion_point = base_template.find(insertion_point_str)
-        
-        if lang_instruction and insertion_point != -1:
-            # Insert instruction before the JSON format part
-            return f"{base_template[:insertion_point]}{lang_instruction}\n{base_template[insertion_point:]}".strip()
-        elif lang_instruction:
-            # Fallback if insertion point not found, append at the end
-            return f"{base_template}\n{lang_instruction}".strip()
-        else:
-            # If instruction is empty, return base
-            return base_template
+        return base_template
 
     @classmethod
     def get_final_answer_human_prompt_template(cls):
         """Gets the final answer human prompt template."""
-        return cls.PROMPTS.get('final_answer_prompt_human', '')
+        return cls.PROMPTS.get('final_answer_prompt_human', '')    
 
     @classmethod
     def get_judge_prompt_template(cls):
         """Gets the judge prompt template."""
         return cls.PROMPTS.get('judge_prompt_template', '')
+
+    @classmethod
+    def get_json_format_instructions(cls):
+        """Gets the json_format_prompt."""
+        return cls.PROMPTS.get('json_format_prompt', '')
 
     @classmethod
     def get_user_message(cls, message_key: str, default: str = ""):

@@ -7,13 +7,13 @@ This project implements a Telegram bot powered by a sophisticated, stateful agen
 The core of the project is a stateful agent that can intelligently route user queries. It can distinguish between general conversation and questions that require knowledge retrieval. For RAG queries, it uses a hybrid search approach (semantic and lexical) on a local knowledge base stored in ChromaDB. If the local search is insufficient, it can fall back to a web search using Tavily. The agent also features a self-correction loop with context evaluation and query reframing.
 
 A key feature is its robust conversational memory and thread management. The agent maintains and summarizes conversation history within distinct, persistent threads stored in a backend like Firestore. Users can create new threads (`/new`), list their recent conversations (`/threads`), and switch between them (`/switch`), allowing for multiple, parallel, stateful conversations.
+To ensure data persistence and scalability, the agent automatically indexes content retrieved from the web and periodically syncs the local vector database to a Google Cloud Storage bucket.
 
 The project is designed for containerized deployment on Google Cloud Run, and it includes a `Dockerfile` and `cloudbuild.yaml` for automated builds and deployments.
 
 ## 2. System Architecture
 
 ### 2.1. Technology Stack
-
 *   **Python:** Core programming language.
 *   **Langchain & LangGraph:** Framework for building the RAG agent and defining the workflow.
 *   **Google Generative AI (Gemini):** LLM used for understanding queries, evaluating context, reframing questions, and generating answers.
@@ -22,6 +22,9 @@ The project is designed for containerized deployment on Google Cloud Run, and it
 *   **pyTelegramBotAPI:** Library for interacting with the Telegram Bot API.
 *   **Flask:** Web framework for handling Telegram webhooks.
 *   **Gunicorn:** WSGI HTTP server for running the Flask application.
+*   **Google Cloud Storage:** For persistent storage of the vector database.
+*   **Docker:** For containerizing the application, ensuring consistent environments.
+*   **Google Cloud Run:** For scalable, serverless deployment of the containerized application.
 *   **Tavily MCP:** Used for web search capabilities when local retrieval is insufficient.
 
 ### 2.2. High-Level Architecture
@@ -40,11 +43,13 @@ Here's the step-by-step flow:
 
 2.  **The RAG Pipeline:**
     *   **Tool Calling:** A specialized node uses a focused, "isolated" prompt to reliably decide which tool to call (e.g., `retrieve_context`).
-    *   **Smart Retrieval (Hybrid Search):** The agent performs a hybrid search, combining **semantic search** (using embeddings in ChromaDB) and **lexical search** (using BM25) on the local knowledge base.
+    *   **Local Retrieval (Hybrid Search):** The agent first attempts to find information by performing a hybrid search (semantic + lexical) on the local knowledge base.
+    *   **Forced Web Fallback:** If the initial local retrieval fails to find any documents (e.g., the requested Murli date is not in the local DB), the agent doesn't give up. It automatically triggers a `force_web_search` node. This node dynamically constructs a URL based on the date and language from the user's query and forces a call to the `tavily-extract` tool to fetch the content directly from an external website.
     *   **Sentence Window Retrieval:** To ensure the LLM receives complete context, the agent doesn't just use the single most relevant chunk. Instead, for each retrieved chunk, it reconstructs a "window" of context by also fetching the chunks immediately before and after it from the original document. This prevents issues where the best matching chunk is only part of a sentence or paragraph, giving the LLM a more coherent and comprehensive view of the information before it's passed on for reranking and final answer generation.
-    *   **Context Reranking:** The initially retrieved documents are reranked using a CrossEncoder model to bring the most relevant passages to the top.
+    *   **Web Content Indexing & DB Sync**: After a tool call (especially a web search), the `process_tool_output` node prepares any newly retrieved documents (e.g., from a `tavily-extract` call), which are tracked in the `docs_to_index` field of the agent's state. The subsequent `index_and_sync` node then takes these documents, adds them to the local ChromaDB vector store, and triggers an asynchronous sync of the entire vector store to a Google Cloud Storage bucket. This ensures that knowledge gained from web searches is persisted.
+    *   **Context Reranking:** The retrieved documents (from local or web search) are reranked using a CrossEncoder model to bring the most relevant passages to the top.
     *   **Relevance Evaluation:** The agent evaluates if the reranked context is sufficient to answer the original question.
-    *   **Self-Correction & Web Fallback:** If local context is insufficient, the agent rephrases the query and attempts to retrieve information from the web using **Tavily tools**. This acts as a built-in retry mechanism.
+    *   **Self-Correction (Query Reframing):** If the *evaluated* context is still insufficient, the agent rephrases the query and re-runs the retrieval process. This acts as a built-in retry mechanism to improve understanding.
     *   **Grounded Generation:** Finally, a dedicated node takes the validated context (from local or web) and the full conversation history to generate a high-quality, grounded answer in a structured JSON format.
 
 This explicit, router-based architecture allows the agent to be both a powerful, accurate RAG system and a coherent, stateful conversationalist without compromising on either capability.
@@ -76,6 +81,7 @@ The `AgentState` is a `TypedDict` that represents the state of the LangGraph age
 *   `context`: A dictionary that holds the context for the summarization node.
 *   `route_decision`: The decision made by the router, which can be 'RAG_QUERY' or 'CONVERSATIONAL_QUERY'.
 *   `summary_was_triggered`: A boolean flag that indicates whether the conversation history was just summarized.
+*   `docs_to_index`: A list of `Document` objects retrieved from the web that are queued for indexing into the vector store.
 
 ## 4. File Overview
 
@@ -98,6 +104,7 @@ The `AgentState` is a `TypedDict` that represents the state of the LangGraph age
 *   **`evaluation_nodes.py`**: Includes nodes for evaluating the retrieved context (`evaluate_context_node`) and reframing the query if the context is insufficient (`reframe_query_node`).
 *   **`process_tool_output_node.py`**: Parses the output from tool calls (like `retrieve_context` or Tavily web search) and updates the agent's state.
 *   **`prompts.py`**: Contains helper functions that construct and return `ChatPromptTemplate` objects for the various agent nodes.
+*   **`indexing_node.py`**: Contains the logic for the `index_and_sync` node, which adds new documents to the local vector store and triggers the GCS sync.
 *   **`custom_nodes.py`**: Contains custom nodes for the LangGraph agent, such as the `LoggingSummarizationNode`.
 
 ### Configuration (`RAG_BOT/src/config/`)
@@ -114,7 +121,8 @@ The `AgentState` is a `TypedDict` that represents the state of the LangGraph age
 
 ### Persistence (`RAG_BOT/src/persistence/`)
 
-*   **`vector_store.py`**: Manages the ChromaDB vector store, including initialization, adding documents, and querying the index.
+*   **`vector_store.py`**: Manages the local ChromaDB vector store, including initialization, adding documents, and querying the index.
+*   **`firestore_thread_manager.py`**: Implements the `AbstractThreadManager` interface using Google Firestore. It handles creating, listing, switching, and deleting conversation threads, ensuring persistent and scalable conversation management.
 *   **`user_settings_manager.py`**: Manages user-specific settings (like preferred language) in a persistent backend like SQLite.
 *   **`update_manager.py`**: A utility to prevent processing duplicate Telegram updates by storing and checking update IDs in a SQLite database.
 
@@ -128,6 +136,7 @@ The `AgentState` is a `TypedDict` that represents the state of the LangGraph age
 
 *   **`document_indexer.py`**: Orchestrates the document indexing process, using the file manager and document processors to get documents into the vector store.
 *   **`message_handler.py`**: Contains the core logic for processing incoming messages. It manages user sessions, determines the correct conversation `thread_id` for stateful interactions, invokes the agent, and formats the final response.
+*   **`gcs_uploader.py`**: Implements the `GCSUploaderService`, which handles the asynchronous synchronization of the local vector store directory to a specified Google Cloud Storage bucket.
 
 ### Telegram (`RAG_BOT/src/telegram/`)
 
@@ -140,9 +149,12 @@ The `AgentState` is a `TypedDict` that represents the state of the LangGraph age
 *   **`general_commands.py`**: Implements the handlers for the `/start` and `/help` commands.
 *   **`language_command.py`**: Implements the handler for the `/language` command, which allows users to set their preferred language.
 *   **`mode_command.py`**: Implements the handler for the `/mode` command, which allows users to set the bot's response mode (e.g., 'default' or 'research').
-*   **`thread_commands.py`**: Implements the handlers for the thread management commands: `/new`, `/threads`, and `/switch`.
+*   **`thread_commands.py`**: Implements the handlers for the full lifecycle of thread management: `/new`, `/threads`, `/switch`, and `/delete`.
 *   **`document_handler.py`**: Implements the handler for processing incoming documents (PDFs and HTM files) that users upload for indexing.
 *   **`text_message_handler.py`**: This is the catch-all handler for any text message that is not a command. It schedules the asynchronous processing of the message to avoid blocking the webhook response.
+
+#### Utilities (`RAG_BOT/src/telegram/`)
+*   **`thread_cli.py`**: A command-line utility for backend administrators to manage user threads directly (e.g., listing or deleting threads for a specific user).
 
 ### Evaluation (`RAG_BOT/src/evaluation/`)
 
@@ -308,6 +320,7 @@ The deployment is automated using Cloud Build.
     *   Send `/help` to see available commands.
     *   **Set Language:** Use `/language hindi` or `/language english` to set your preferred language for bot responses.
     *   **Upload Documents:** Send PDF or HTM documents directly to the chat to have them indexed. The bot will attempt to detect the document's language and index it.
+    *   **Manage Conversations:** Use `/new`, `/threads`, `/switch <number>`, and `/delete <number>` to manage your conversation threads.
     *   **Query Documents:**
         *   Send a general message: `What were the main points about soul consciousness on 1969-01-23?` (The agent will attempt retrieval).
     *   **Conversational Questions:** Ask questions about the chat itself (e.g., "summarize our conversation"). The agent will use its memory to answer.
