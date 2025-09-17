@@ -73,7 +73,7 @@ steps:
       - '--update-env-vars=MYPORT=5000'
       - '--update-env-vars=MAX_TOKENS_BEFORE_SUMMARY=10000'
       - '--update-env-vars=MAX_SUMMARY_TOKENS=3000'
-      - '--update-env-vars=MAX_TOKENS=100000'
+      - '--update-env-vars=MAX_TOKENS=200000'
       - '--update-env-vars=GCP_PROJECT_ID=ardent-justice-466212-b8'
       - '--update-env-vars=CHECKPOINTER_TYPE=firestore'
       - '--update-env-vars=CONV_PERSISTENCE_BACKEND=firestore'
