@@ -62,8 +62,7 @@ async def conversational_node(state: AgentState, llm: ChatGoogleGenerativeAI) ->
         # Get the prompt template
         conversational_prompt = get_conversational_chat_prompt()        
         # Prepare values for the prompt template
-        prompt_values = {
-            "lang_instruction": Config.get_final_answer_language_instruction(language_code),
+        prompt_values = {            
             "json_format_instructions": Config.get_json_format_instructions(),
             "history": clean_history
         }
