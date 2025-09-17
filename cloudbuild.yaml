@@ -61,6 +61,7 @@ steps:
       - '--update-env-vars=EMBEDDING_MODEL_NAME=paraphrase-multilingual-mpnet-base-v2'
       - '--update-env-vars=RERANKER_MODEL_NAME=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1'
       - '--update-env-vars=LLM_MODEL_NAME=gemini-2.5-flash'
+      - '--update-env-vars=TOOL_CALLING_LLM_MODEL_NAME=gemini-2.5-pro'
       - '--update-env-vars=LANGUAGE=hi'
       - '--update-env-vars=LOG_LEVEL=INFO'
       - '--update-env-vars=LANGCHAIN_TRACING_V2=true'
